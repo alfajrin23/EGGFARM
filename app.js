@@ -31,10 +31,12 @@ const defaultState = () => ({
     ...['PT','SU','JB','TC'].map(category=>({id:`local-${category}`,farm_id:'cikalong',sale_category:category,stock_category:category,kg_per_peti:15,conversion_confirmed:false})),
     {id:'local-telur-jumbo',farm_id:'cikalong',sale_category:'Telur Jumbo',stock_category:'JB',kg_per_peti:15,conversion_confirmed:false},
     {id:'local-telur-bagus',farm_id:'cikalong',sale_category:'Telur bagus',stock_category:'SU',kg_per_peti:15,conversion_confirmed:false},
+    {id:'local-telur-ecer',farm_id:'cikalong',sale_category:'Telur ecer',stock_category:'SU',kg_per_peti:15,conversion_confirmed:false},
     {id:'local-telur-retak',farm_id:'cikalong',sale_category:'Telur retak',stock_category:'TC',kg_per_peti:15,conversion_confirmed:false},
     {id:'local-telur-15kg',farm_id:'cikalong',sale_category:'Telur 15 kg',stock_category:'PT',kg_per_peti:15,conversion_confirmed:false},
     {id:'local-telur-15kg-18',farm_id:'cikalong',sale_category:'Telur 15 kg x 18 krat',stock_category:'PT',kg_per_peti:15,conversion_confirmed:false},
-    ...['PT','SU','JB','TC'].map(category=>({id:`local-skn-${category}`,farm_id:'sukanagara',sale_category:category,stock_category:category,kg_per_peti:null,conversion_confirmed:false}))
+    ...['PT','SU','JB','TC'].map(category=>({id:`local-skn-${category}`,farm_id:'sukanagara',sale_category:category,stock_category:category,kg_per_peti:null,conversion_confirmed:false})),
+    {id:'local-skn-telur-ecer',farm_id:'sukanagara',sale_category:'Telur ecer',stock_category:'SU',kg_per_peti:null,conversion_confirmed:false}
   ],
   auditEvents: [],
   terms: [
@@ -81,7 +83,10 @@ function roleForDisplay() {
     ? memberships.find(m => adminRoles.includes(m.role))?.role || null
     : roleForFarm();
 }
-function canManageFarm(farmId = selectedFarm) { return adminRoles.includes(roleForFarm(farmId)); }
+function canManageFarm(farmId = selectedFarm) {
+  if (backend === 'local') return true;
+  return memberships.some(m => adminRoles.includes(m.role)) || adminRoles.includes(roleForFarm(farmId));
+}
 function canViewAllFarms() { return backend === 'local' || memberships.some(m => adminRoles.includes(m.role)); }
 function roleDisplay(role) { return role==='petugas'?'Staff':role==='admin_farm'?'Admin farm':role==='manajer'?'Manajer':role==='admin_sistem'?'Admin sistem':'Tanpa akses'; }
 
@@ -466,7 +471,7 @@ function showInviteStaffForm() {
   let suggestion=farmById(selectedFarmId)?suggestedStaffByCode[farmById(selectedFarmId).code]||null:null;
   openModal('Undang staff','Pilih lokasi akses untuk staff. Undangan login akan dikirim melalui email.',`<form id="inviteStaffForm" class="form-grid">${formField('Nama staff','full_name','text',suggestion?.full_name||'',{required:true})}${formField('Email staff','email','email',suggestion?.email||'',{required:true,placeholder:'nama@farm.id'})}${selectField('Lokasi akses','farm_id',farmOptions,selectedFarmId,true,true)}<div class="field full"><small class="muted-note">Staff hanya dapat melihat dan mencatat data pada lokasi yang dipilih.</small></div><div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">Kirim undangan</button></div></form>`);
   $('#inviteStaffForm select[name="farm_id"]').addEventListener('change',e=>{const nextFarm=farmById(e.currentTarget.value);const nextSuggestion=nextFarm?suggestedStaffByCode[nextFarm.code]||null:null;const fullNameInput=$('#inviteStaffForm [name="full_name"]');const emailInput=$('#inviteStaffForm [name="email"]');if(!fullNameInput.value||fullNameInput.value===suggestion?.full_name)fullNameInput.value=nextSuggestion?.full_name||'';if(!emailInput.value||emailInput.value===suggestion?.email)emailInput.value=nextSuggestion?.email||'';suggestion=nextSuggestion;});
-  $('#inviteStaffForm').addEventListener('submit',async e=>{e.preventDefault();if(backend!=='supabase'||!supabase){toast('Undangan staff perlu koneksi Supabase.',true);return;}const f=Object.fromEntries(new FormData(e.currentTarget));const farm=farmById(f.farm_id);if(!farm){toast('Pilih lokasi akses untuk staff.',true);return;}const button=e.currentTarget.querySelector('button.btn-primary');button.disabled=true;button.textContent='Mengirim…';try{const {data,error}=await supabase.functions.invoke('admin-invite-user',{body:{email:f.email,full_name:f.full_name,farm_id:farm.id}});if(error||data?.error)throw new Error(error?.message||data?.error||'Undangan gagal dikirim.');}catch(error){console.error('Undangan staff gagal dikirim',error);toast(error.message||'Undangan gagal dikirim.',true);button.disabled=false;button.textContent='Kirim undangan';return;}closeModal();toast(`Undangan staff dikirim ke ${f.email}.`);await connectSupabase();});
+  $('#inviteStaffForm').addEventListener('submit',async e=>{e.preventDefault();if(backend!=='supabase'||!supabase){toast('Undangan staff perlu koneksi Supabase.',true);return;}const f=Object.fromEntries(new FormData(e.currentTarget));const farm=farmById(f.farm_id);if(!farm){toast('Pilih lokasi akses untuk staff.',true);return;}const button=e.currentTarget.querySelector('button.btn-primary');button.disabled=true;button.textContent='Mengirim…';try{const {data,error}=await supabase.functions.invoke('admin-invite-user',{body:{email:f.email,full_name:f.full_name,farm_id:farm.id}});if(error||data?.error)throw new Error(error?.message||data?.error||'Undangan gagal dikirim.');}catch(error){console.error('Undangan staff gagal dikirim',error);const rawMessage=error.message||'Undangan gagal dikirim.';const message=rawMessage.includes('Failed to send a request to the Edge Function')?'Fungsi undangan belum dapat dijangkau. Pastikan admin-invite-user sudah di-deploy ke proyek Supabase.':rawMessage;toast(message,true);button.disabled=false;button.textContent='Kirim undangan';return;}closeModal();toast(`Undangan staff dikirim ke ${f.email}.`);await connectSupabase();});
 }
 
 async function saveRecord(table,row,operation='insert') {

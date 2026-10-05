@@ -203,7 +203,7 @@ on conflict (code) do nothing;
 insert into public.farm_stock_rules(farm_id,sale_category,stock_category,kg_per_peti,conversion_confirmed)
 select f.id,v.sale_category,v.stock_category,case when f.code='CKL' then 15::numeric else null end,false
 from public.farms f
-cross join (values ('PT','PT'),('SU','SU'),('JB','JB'),('TC','TC'),('Telur Jumbo','JB'),('Telur bagus','SU'),('Telur retak','TC'),('Telur 15 kg','PT'),('Telur 15 kg x 18 krat','PT')) as v(sale_category,stock_category)
+cross join (values ('PT','PT'),('SU','SU'),('JB','JB'),('TC','TC'),('Telur Jumbo','JB'),('Telur bagus','SU'),('Telur ecer','SU'),('Telur retak','TC'),('Telur 15 kg','PT'),('Telur 15 kg x 18 krat','PT')) as v(sale_category,stock_category)
 where f.code='CKL' or v.sale_category in ('PT','SU','JB','TC')
 on conflict (farm_id,sale_category) do nothing;
 
@@ -295,7 +295,7 @@ create policy "admins can delete reports" on public.daily_reports for delete to 
 drop policy if exists "farm members can view sales" on public.sales;
 create policy "farm members can view sales" on public.sales for select to authenticated using (public.is_farm_member(farm_id) or public.is_farm_admin());
 drop policy if exists "admins can manage sales" on public.sales;
-create policy "admins can manage sales" on public.sales for all to authenticated using (public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem'])) with check (public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem']));
+create policy "admins can manage sales" on public.sales for all to authenticated using (public.is_farm_admin() or public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem'])) with check (public.is_farm_admin() or public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem']));
 
 drop policy if exists "members can view farm stock rules" on public.farm_stock_rules;
 create policy "members can view farm stock rules" on public.farm_stock_rules for select to authenticated using (public.is_farm_member(farm_id));

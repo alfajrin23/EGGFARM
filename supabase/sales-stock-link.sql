@@ -41,6 +41,6 @@ insert into public.farm_stock_rules(farm_id,sale_category,stock_category,kg_per_
 select f.id,v.sale_category,v.stock_category,
        case when f.code='CKL' then 15::numeric else null end,false
 from public.farms f
-cross join (values ('PT','PT'),('SU','SU'),('JB','JB'),('TC','TC'),('Telur Jumbo','JB'),('Telur bagus','SU'),('Telur retak','TC'),('Telur 15 kg','PT'),('Telur 15 kg x 18 krat','PT')) as v(sale_category,stock_category)
+cross join (values ('PT','PT'),('SU','SU'),('JB','JB'),('TC','TC'),('Telur Jumbo','JB'),('Telur bagus','SU'),('Telur ecer','SU'),('Telur retak','TC'),('Telur 15 kg','PT'),('Telur 15 kg x 18 krat','PT')) as v(sale_category,stock_category)
 where f.code='CKL' or v.sale_category in ('PT','SU','JB','TC')
 on conflict (farm_id,sale_category) do nothing;
