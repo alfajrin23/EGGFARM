@@ -152,6 +152,15 @@ function stockSnapshotPanel() {
   const date=rows[0]?.snapshot_date;
     return `<article class="panel stock-panel"><div class="panel-heading"><div><h3>Saldo stok terakhir</h3><p>${date?`Snapshot per ${dateLabel(date)} · jumlah menurut kategori dan satuan`:'Catatan saldo stok yang dilaporkan petugas.'}</p></div>${action}</div>${rows.length?`<div class="stock-grid">${rows.map(r=>`<div class="stock-balance"><span>${esc(stockLabel(r.category))}</span><b>${num(r.quantity,Number.isInteger(Number(r.quantity))?0:2)} <small>${esc(r.unit)}</small></b></div>`).join('')}</div><div class="stock-caption">Saldo snapshot yang dicatat; tidak dihitung dari produksi dikurangi penjualan. Konversi peti hanya berlaku jika aturan farm dikonfigurasi.</div>`:`<div class="empty-state"><strong>Belum ada saldo stok yang dicatat.</strong><span>Contoh dari catatan Anda: 40 peti · TU 7,4 kg · TC 7,98 kg · JB 4,6 kg. Nilai tersebut contoh format dan belum menjadi saldo tersimpan.</span></div>`}</article>`;
 }
+function dashboardStockSnapshotPanel() {
+  const farms=selectedFarm==='semua'
+    ? state.farms.filter(f=>f.status==='Beroperasi')
+    : state.farms.filter(f=>f.id===selectedFarm);
+  const groups=farms.map(f=>({farm:f,rows:latestStockForFarm(f.id)})).filter(group=>group.rows.length);
+  const order={TU:0,PT:1,JB:2,TC:3,SU:4,LAINNYA:5};
+  const action=`<button class="btn btn-sm btn-soft" data-action="new-stock">＋ Catat saldo</button>`;
+  return `<article class="panel stock-panel"><div class="panel-heading"><div><h3>Saldo stok fisik terbaru</h3><p>Jumlah per kategori dan satuan dari snapshot terakhir setiap lokasi.</p></div>${action}</div>${groups.length?`<div class="stock-location-list">${groups.map(({farm,rows})=>{const date=rows[0].snapshot_date;const sorted=[...rows].sort((a,b)=>(order[a.category]??99)-(order[b.category]??99));return `<section class="stock-location"><div class="stock-location-heading"><b>${esc(farm.name)}</b><span>Snapshot ${dateLabel(date)}</span></div><div class="stock-grid">${sorted.map(r=>`<div class="stock-balance"><span>${esc(stockLabel(r.category))}</span><b>${num(r.quantity,Number.isInteger(Number(r.quantity))?0:2)} <small>${esc(r.unit)}</small></b></div>`).join('')}</div></section>`;}).join('')}</div><div class="stock-caption">Saldo fisik yang dilaporkan. Peti, kg, dan butir ditampilkan terpisah dari saldo stok terhitung.</div>`:'<div class="empty-state"><strong>Belum ada saldo stok yang dicatat.</strong><span>Catat snapshot per kategori untuk menampilkan saldo peti, kg, atau butir.</span></div>'}</article>`;
+}
 function stockRuleFor(farmId,saleCategory) {
   return state.stockRules.find(rule=>rule.farm_id===farmId&&rule.sale_category.trim().toLocaleLowerCase()===String(saleCategory||'').trim().toLocaleLowerCase());
 }
@@ -248,7 +257,7 @@ function renderDashboard() {
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">Rp</span>Nilai penjualan</div><div class="metric-value metric-currency">${rupiah(salesRevenue)}</div><div class="metric-foot">Transaksi dibayar pada periode ini</div></article>
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">▣</span>Saldo stok</div><div class="metric-value">${latestStockForFarm(selectedFarm==='semua'?state.farms.find(f=>f.status==='Beroperasi')?.id:selectedFarm).length?'Tercatat':'Belum'}</div><div class="metric-foot">Lihat snapshot menurut kategori dan satuan di bawah</div></article>
     </div>
-    <div class="section-kicker"><h2>Stok telur saat ini</h2><span>Snapshot fisik dan saldo terhitung ditampilkan terpisah</span></div>${renderStockAvailability()}${stockSnapshotPanel()}
+    <div class="section-kicker"><h2>Stok telur saat ini</h2><span>Snapshot fisik dan saldo terhitung ditampilkan terpisah</span></div>${renderStockAvailability()}${dashboardStockSnapshotPanel()}
     <div class="section-kicker"><h2>Ringkasan periode</h2><span>${dateLabel(shiftDate(-(periodDays() - 1)))} — ${dateLabel(today())}</span></div>
     <div class="overview-lower"><article class="panel"><div class="panel-heading"><div><h3>Tren telur dihasilkan</h3><p>Produksi harian · butir</p></div><div class="chart-legend"><span><i class="legend-dot"></i>Telur dihasilkan</span></div></div>${renderChart(reports)}</article>
       <article class="panel" style="display:flex;flex-direction:column"><div class="panel-heading"><div><h3>Ke mana telur bergerak</h3><p>${period === 'hariini' ? 'Hari ini' : `${periodDays()} hari terakhir`}</p></div><span class="pill">${farm ? esc(farm.name) : 'Semua aktif'}</span></div>
