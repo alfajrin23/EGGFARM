@@ -1,0 +1,6 @@
+// Salin file ini menjadi supabase-config.js, lalu isi dari Project Settings → API.
+// Gunakan hanya Project URL dan anon/publishable key. Jangan pernah menaruh service_role key di browser.
+window.SUPABASE_CONFIG = {
+  url: 'https://PROJECT_REF.supabase.co',
+  anonKey: 'SUPABASE_ANON_OR_PUBLISHABLE_KEY'
+};

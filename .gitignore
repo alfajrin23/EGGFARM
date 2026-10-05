@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+supabase-config.js
+dist/
+.vercel/
+node_modules/
+
+.vercel
+.env*
