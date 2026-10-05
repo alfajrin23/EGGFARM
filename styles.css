@@ -6,3 +6,12 @@
 @media(max-width:900px){.stock-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.login-screen{grid-template-columns:.8fr 1.2fr}.login-aside{padding:30px}}
 @media(max-width:650px){.stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.login-screen{grid-template-columns:1fr;min-height:100vh}.login-aside{padding:21px 23px 22px;min-height:220px}.login-aside-copy{margin:30px 0 10px}.login-aside-copy h1{font-size:27px;margin:8px 0}.login-aside-copy p{font-size:10px;margin:0}.login-facts{display:none}.login-aside-foot{display:none}.login-main{padding:29px 22px 45px;align-items:start}.login-card{margin:auto}.login-card h2{font-size:22px}}
 @media print{.sidebar,.topbar,.heading-actions,.filters .btn{display:none!important}.main-area{margin:0}.page-content{padding:0}.panel,.metric-card{break-inside:avoid;box-shadow:none}}
+
+/* Sales value metrics: five dashboard indicators fit desktop and wrap cleanly on small screens. */
+.overview-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.report-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
+.metric-value.metric-currency{font-size:18px;white-space:nowrap}
+@media(max-width:1300px){.overview-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1050px){.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.report-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.report-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:390px){.metric-value.metric-currency{font-size:14px}}

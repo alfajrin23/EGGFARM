@@ -45,7 +45,7 @@ const defaultState = () => ({
 
 let state;
 let view = location.hash.slice(1) || 'ringkasan';
-let selectedFarm = 'cikalong';
+let selectedFarm = 'semua';
 let period = '7hari';
 let supabase = null;
 let backend = 'local';
@@ -53,6 +53,7 @@ let loading = false;
 let currentUser = null;
 let memberships = [];
 let farmUsers = [];
+let modalReturnFocus = null;
 let authFlowType = new URLSearchParams(location.hash.slice(1)).get('type') || new URLSearchParams(location.search).get('type') || '';
 
 const adminRoles = ['admin_farm','manajer','admin_sistem'];
@@ -85,6 +86,9 @@ function filteredReports(farmId = selectedFarm) {
 function filteredSales(farmId = selectedFarm) {
   const cutoff = shiftDate(-(periodDays() - 1));
   return state.sales.filter(s => (farmId === 'semua' || s.farm_id === farmId) && s.date >= cutoff && s.date <= today());
+}
+function paidSalesTotal(sales) {
+  return sales.filter(s => (s.status || 'Dibayar') === 'Dibayar').reduce((total, sale) => total + Number(sale.amount || 0), 0);
 }
 function farmSelect(value = selectedFarm, includeAll = true) {
   const showAll = includeAll && canViewAllFarms();
@@ -135,6 +139,7 @@ function renderDashboard() {
   const kg = reports.reduce((s, r) => s + Number(r.kg || 0), 0);
   const good = reports.reduce((s, r) => s + Number(r.su || 0) + Number(r.jb || 0), 0);
   const sold = sales.reduce((s, r) => s + (r.unit === 'kg' ? Number(r.quantity || 0) : Number(r.quantity || 0) * .058), 0);
+  const salesRevenue = paidSalesTotal(sales);
   const farm = selectedFarm === 'semua' ? null : farmById(selectedFarm);
   const action = `<button class="btn btn-primary" data-action="new-report">＋ Catat produksi</button><button class="btn" data-go="laporan">Lihat laporan</button>`;
   return `${heading('OPERASI FARM', farm ? `Selamat pagi, tim ${esc(farm.name)}.` : 'Ringkasan semua lokasi aktif.', 'Pantau catatan produksi, pergerakan telur, dan hal yang perlu ditinjau.', action)}
@@ -143,6 +148,7 @@ function renderDashboard() {
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">◒</span>Telur dihasilkan</div><div class="metric-value">${num(eggs)} <small>butir</small></div><div class="metric-foot">${num(kg, 2)} kg · ${reports.length} hari tercatat</div></article>
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">✓</span>Hasil sortir utuh</div><div class="metric-value">${num(good, 2)} <small>kg</small></div><div class="metric-foot">SU + JB · perlu konfirmasi SOP</div></article>
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">↗</span>Terjual</div><div class="metric-value">${num(sold, 2)} <small>kg</small></div><div class="metric-foot">${sales.length} transaksi · stok dihitung terpisah</div></article>
+      <article class="metric-card"><div class="metric-top"><span class="metric-icon">Rp</span>Nilai penjualan</div><div class="metric-value metric-currency">${rupiah(salesRevenue)}</div><div class="metric-foot">Transaksi dibayar pada periode ini</div></article>
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">▣</span>Saldo stok</div><div class="metric-value">${latestStockForFarm(selectedFarm==='semua'?state.farms.find(f=>f.status==='Beroperasi')?.id:selectedFarm).length?'Tercatat':'Belum'}</div><div class="metric-foot">Lihat snapshot menurut kategori dan satuan di bawah</div></article>
     </div>
     <div class="section-kicker"><h2>Stok telur saat ini</h2><span>Saldo catatan dipisah dari produksi dan penjualan</span></div>${stockSnapshotPanel()}
@@ -175,7 +181,8 @@ function renderCash() {
 function renderReports() {
   const rows=filteredReports(), sales=filteredSales();
   const eggs=rows.reduce((s,r)=>s+Number(r.eggs||0),0), kg=rows.reduce((s,r)=>s+Number(r.kg||0),0), henDays=rows.reduce((s,r)=>s+Number(r.birds||0),0), feed=rows.reduce((s,r)=>s+Number(r.feed||0),0);
-  return `${heading('REKAP OPERASIONAL','Laporan','Ringkas periode dengan satuan, filter, dan jejak ke catatan harian.', '<button class="btn btn-primary" data-action="export-report">⇩ Ekspor CSV</button><button class="btn" data-action="print">Cetak / PDF</button>')}<div class="filters">${farmSelect()}<div class="select-wrap"><select class="select-control" id="periodFilter"><option value="hariini" ${period==='hariini'?'selected':''}>Hari ini</option><option value="7hari" ${period==='7hari'?'selected':''}>7 hari terakhir</option><option value="30hari" ${period==='30hari'?'selected':''}>30 hari terakhir</option></select></div><span class="muted-note">${dateLabel(shiftDate(-(periodDays()-1)))} — ${dateLabel(today())} · zona waktu Asia/Jakarta</span></div><div class="report-summary"><div><small>Telur dihasilkan</small><b>${num(eggs)} butir</b></div><div><small>Berat produksi</small><b>${num(kg,2)} kg</b></div><div><small>Telur terjual</small><b>${num(sales.reduce((s,x)=>s+Number(x.quantity||0),0),2)} sesuai satuan</b></div><div><small>HDP berbobot</small><b>${henDays ? `${num(eggs/henDays*100,2)}%` : 'Belum dicatat'}</b></div><div><small>Pakan tercatat</small><b>${num(feed,2)} kg</b></div><div><small>FCR dihitung</small><b>${kg&&feed?num(feed/kg,2):'Belum dicatat'}</b></div></div><article class="panel" style="margin-top:13px"><div class="panel-heading"><div><h3>Produksi harian</h3><p>Persentase agregat memakai total pembilang ÷ total penyebut.</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Tanggal</th><th>Lokasi</th><th>Butir</th><th>Kg</th><th>Populasi</th><th>HDP</th><th>Pakan (kg)</th><th>FCR</th><th>Status</th></tr></thead><tbody>${rows.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(r=>`<tr><td><b>${dateLabel(r.date)}</b></td><td>${esc(farmById(r.farm_id)?.name||'—')}</td><td>${num(r.eggs)}</td><td>${num(r.kg,2)}</td><td>${num(r.birds)}</td><td>${r.birds?`${num(r.eggs/r.birds*100,2)}%`:'Belum dicatat'}</td><td>${num(r.feed,2)}</td><td>${r.kg&&r.feed?num(r.feed/r.kg,2):'Belum dicatat'}</td><td>${statusBadge(r.status||'Dikirim')}</td></tr>`).join('')||'<tr><td colspan="9" class="empty-state">Tidak ada data untuk filter ini.</td></tr>'}</tbody></table></div></article><p class="muted-note">Laporan dibuat ${dateLabel(today())}. Angka stok memerlukan saldo awal dan rekonsiliasi sebelum dianggap saldo aktual.</p>`;
+  const salesRevenue=paidSalesTotal(sales);
+  return `${heading('REKAP OPERASIONAL','Laporan','Ringkas periode dengan satuan, filter, dan jejak ke catatan harian.', '<button class="btn btn-primary" data-action="export-report">⇩ Ekspor CSV</button><button class="btn" data-action="print">Cetak / PDF</button>')}<div class="filters">${farmSelect()}<div class="select-wrap"><select class="select-control" id="periodFilter"><option value="hariini" ${period==='hariini'?'selected':''}>Hari ini</option><option value="7hari" ${period==='7hari'?'selected':''}>7 hari terakhir</option><option value="30hari" ${period==='30hari'?'selected':''}>30 hari terakhir</option></select></div><span class="muted-note">${dateLabel(shiftDate(-(periodDays()-1)))} — ${dateLabel(today())} · zona waktu Asia/Jakarta</span></div><div class="report-summary"><div><small>Telur dihasilkan</small><b>${num(eggs)} butir</b></div><div><small>Berat produksi</small><b>${num(kg,2)} kg</b></div><div><small>Telur terjual</small><b>${num(sales.reduce((s,x)=>s+Number(x.quantity||0),0),2)} sesuai satuan</b></div><div><small>Nilai penjualan dibayar</small><b>${rupiah(salesRevenue)}</b></div><div><small>HDP berbobot</small><b>${henDays ? `${num(eggs/henDays*100,2)}%` : 'Belum dicatat'}</b></div><div><small>Pakan tercatat</small><b>${num(feed,2)} kg</b></div><div><small>FCR dihitung</small><b>${kg&&feed?num(feed/kg,2):'Belum dicatat'}</b></div></div><article class="panel" style="margin-top:13px"><div class="panel-heading"><div><h3>Produksi harian</h3><p>Persentase agregat memakai total pembilang ÷ total penyebut.</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Tanggal</th><th>Lokasi</th><th>Butir</th><th>Kg</th><th>Populasi</th><th>HDP</th><th>Pakan (kg)</th><th>FCR</th><th>Status</th></tr></thead><tbody>${rows.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(r=>`<tr><td><b>${dateLabel(r.date)}</b></td><td>${esc(farmById(r.farm_id)?.name||'—')}</td><td>${num(r.eggs)}</td><td>${num(r.kg,2)}</td><td>${num(r.birds)}</td><td>${r.birds?`${num(r.eggs/r.birds*100,2)}%`:'Belum dicatat'}</td><td>${num(r.feed,2)}</td><td>${r.kg&&r.feed?num(r.feed/r.kg,2):'Belum dicatat'}</td><td>${statusBadge(r.status||'Dikirim')}</td></tr>`).join('')||'<tr><td colspan="9" class="empty-state">Tidak ada data untuk filter ini.</td></tr>'}</tbody></table></div></article><p class="muted-note">Laporan dibuat ${dateLabel(today())}. Angka stok memerlukan saldo awal dan rekonsiliasi sebelum dianggap saldo aktual.</p>`;
 }
 
 function renderDictionary() {
@@ -183,7 +190,7 @@ function renderDictionary() {
 }
 
 function renderSettings() {
-  const canManage=canManageFarm();
+  const canManage=selectedFarm==='semua'?canViewAllFarms():canManageFarm();
   const canManageLocations=['manajer','admin_sistem'].includes(roleForFarm());
   const headerAction=canManageLocations?'<button class="btn btn-primary" data-action="new-farm">＋ Tambah lokasi</button>':'';
   const users=selectedFarm==='semua'?farmUsers:farmUsers.filter(m=>m.farm_id===selectedFarm);
@@ -214,17 +221,34 @@ function render() {
 function toast(message, error = false) {
   const item = document.createElement('div'); item.className = `toast${error ? ' error' : ''}`; item.textContent = message; $('#toastRoot').append(item); setTimeout(() => item.remove(), 3400);
 }
-function openModal(title, subtitle, body) {
-  $('#modalRoot').innerHTML = `<div class="modal-backdrop" data-close="true"><section class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-head"><div><h2>${title}</h2><p>${subtitle}</p></div><button type="button" class="close-button" data-close="true" aria-label="Tutup">×</button></div>${body}</section></div>`;
-  $('#modalRoot').addEventListener('click', e => { if (e.target.dataset.close === 'true') $('#modalRoot').innerHTML = ''; }, { once: true });
+function closeModal() {
+  const root = $('#modalRoot');
+  if (!root.querySelector('.modal')) return;
+  root.innerHTML = '';
+  const returnFocus = modalReturnFocus;
+  modalReturnFocus = null;
+  if (returnFocus?.isConnected) returnFocus.focus();
 }
+function openModal(title, subtitle, body) {
+  const root = $('#modalRoot');
+  if (!root.querySelector('.modal')) modalReturnFocus = document.activeElement;
+  root.innerHTML = `<div class="modal-backdrop" data-close="true"><section class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}" tabindex="-1"><div class="modal-head"><div><h2>${title}</h2><p>${subtitle}</p></div><button type="button" class="close-button" data-close="true" aria-label="Tutup">×</button></div>${body}</section></div>`;
+  root.onclick = e => {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.matches('.modal-backdrop') || e.target.closest('[data-close="true"]:not(.modal-backdrop)')) closeModal();
+  };
+  root.querySelector('.modal')?.focus();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('#modalRoot .modal')) closeModal();
+});
 function formField(label, name, type = 'text', value = '', opts = {}) {
   const attrs = `${opts.required ? 'required' : ''} ${opts.step ? `step="${opts.step}"` : ''} ${opts.min !== undefined ? `min="${opts.min}"` : ''} ${opts.max ? `max="${opts.max}"` : ''} ${opts.placeholder ? `placeholder="${esc(opts.placeholder)}"` : ''}`;
   const control = type === 'textarea' ? `<textarea name="${name}" ${attrs}>${esc(value)}</textarea>` : `<input class="input-control" name="${name}" type="${type}" value="${esc(value)}" ${attrs}>`;
   return `<div class="field ${opts.full ? 'full' : ''}"><label>${label}${opts.required ? ' *' : ''}</label>${control}${opts.help ? `<small>${opts.help}</small>` : ''}</div>`;
 }
-function selectField(label, name, options, value = '', full = false) {
-  return `<div class="field ${full ? 'full' : ''}"><label>${label}</label><div class="select-wrap"><select class="input-control" name="${name}">${options.map(item=>{const [optionValue,optionLabel]=Array.isArray(item)?item:[item,item];return `<option value="${esc(optionValue)}" ${optionValue===value?'selected':''}>${esc(optionLabel)}</option>`}).join('')}</select></div></div>`;
+function selectField(label, name, options, value = '', full = false, required = false) {
+  return `<div class="field ${full ? 'full' : ''}"><label>${label}</label><div class="select-wrap"><select class="input-control" name="${name}" ${required ? 'required' : ''}>${options.map(item=>{const [optionValue,optionLabel]=Array.isArray(item)?item:[item,item];return `<option value="${esc(optionValue)}" ${optionValue===value?'selected':''}>${esc(optionLabel)}</option>`}).join('')}</select></div></div>`;
 }
 function showReportForm() {
   const opts = state.farms.map(f=>[f.id,`${f.name} · ${f.status}`]);
@@ -255,11 +279,11 @@ function showFarmForm(farm=null) {
 function showTermForm(){openModal('Tambah istilah','Simpan arti lokal, unit, dan aturan penggunaan yang sudah dikonfirmasi.',`<form id="termForm" class="form-grid">${formField('Istilah / singkatan','term','text','',{required:true})}${formField('Nama umum','common','text','',{required:true})}${formField('Definisi','definition','textarea','',{required:true,full:true})}${formField('Unit','unit','text','',{required:true})}${formField('Aturan / dampak','rule','textarea','',{full:true})}<div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">Tambah istilah</button></div></form>`);$('#termForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));await saveRecord('terms',{id:crypto.randomUUID(),...f});$('#modalRoot').innerHTML='';render();toast('Istilah ditambahkan.');});}
 
 function showInviteStaffForm() {
-  if(!canManageFarm()){toast('Hanya admin lokasi yang dapat menambah staff.',true);return;}
-  const farm=farmById(selectedFarm);
-  if(!farm){toast('Pilih satu lokasi sebelum mengundang staff.',true);return;}
-  openModal('Undang staff','Staff akan menerima email undangan dan mendapat akses petugas untuk lokasi yang dipilih.',`<form id="inviteStaffForm" class="form-grid">${formField('Nama staff','full_name','text','',{required:true})}${formField('Email staff','email','email','',{required:true,placeholder:'nama@farm.id'})}<div class="field full"><label>Lokasi</label><div class="input-control invite-farm-label">${esc(farm.name)} · peran Staff</div><small>Staff tidak dapat membuat akun atau mengundang pengguna lain.</small></div><div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">Kirim undangan</button></div></form>`);
-  $('#inviteStaffForm').addEventListener('submit',async e=>{e.preventDefault();if(backend!=='supabase'||!supabase){toast('Undangan staff perlu koneksi Supabase.',true);return;}const f=Object.fromEntries(new FormData(e.currentTarget));const button=e.currentTarget.querySelector('button.btn-primary');button.disabled=true;button.textContent='Mengirim…';const {data,error}=await supabase.functions.invoke('admin-invite-user',{body:{email:f.email,full_name:f.full_name,farm_id:farm.id}});if(error||data?.error){toast(error?.message||data?.error||'Undangan gagal dikirim.',true);button.disabled=false;button.textContent='Kirim undangan';return;}$('#modalRoot').innerHTML='';toast(`Undangan staff dikirim ke ${f.email}.`);await connectSupabase();});
+  if(!(selectedFarm==='semua'?canViewAllFarms():canManageFarm())){toast('Hanya admin yang dapat menambah staff.',true);return;}
+  const farmOptions=[['','Pilih lokasi'],...state.farms.map(f=>[f.id,`${f.name} · ${f.status}`])];
+  const selectedFarmId=selectedFarm==='semua'?'':selectedFarm;
+  openModal('Undang staff','Pilih lokasi akses untuk staff. Undangan login akan dikirim melalui email.',`<form id="inviteStaffForm" class="form-grid">${formField('Nama staff','full_name','text','',{required:true})}${formField('Email staff','email','email','',{required:true,placeholder:'nama@farm.id'})}${selectField('Lokasi akses','farm_id',farmOptions,selectedFarmId,true,true)}<div class="field full"><small class="muted-note">Staff hanya dapat melihat dan mencatat data pada lokasi yang dipilih.</small></div><div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">Kirim undangan</button></div></form>`);
+  $('#inviteStaffForm').addEventListener('submit',async e=>{e.preventDefault();if(backend!=='supabase'||!supabase){toast('Undangan staff perlu koneksi Supabase.',true);return;}const f=Object.fromEntries(new FormData(e.currentTarget));const farm=farmById(f.farm_id);if(!farm){toast('Pilih lokasi akses untuk staff.',true);return;}const button=e.currentTarget.querySelector('button.btn-primary');button.disabled=true;button.textContent='Mengirim…';try{const {data,error}=await supabase.functions.invoke('admin-invite-user',{body:{email:f.email,full_name:f.full_name,farm_id:farm.id}});if(error||data?.error)throw new Error(error?.message||data?.error||'Undangan gagal dikirim.');}catch(error){console.error('Undangan staff gagal dikirim',error);toast(error.message||'Undangan gagal dikirim.',true);button.disabled=false;button.textContent='Kirim undangan';return;}closeModal();toast(`Undangan staff dikirim ke ${f.email}.`);await connectSupabase();});
 }
 
 async function saveRecord(table,row,operation='insert') {
@@ -311,7 +335,6 @@ async function connectSupabase() {
     if(farmResult.error)throw farmResult.error;
     const farms=farmResult.data||[];
     state.farms=farms;
-    selectedFarm=state.farms.find(f=>f.code==='CKL')?.id||state.farms.find(f=>f.status==='Beroperasi')?.id||state.farms[0]?.id||'semua';
     const farmIds=farms.map(f=>f.id);
     const membershipQuery=farmIds.length?supabase.from('farm_members').select('farm_id,user_id,role,profiles!farm_members_profile_user_id_fkey(email,full_name)').in('farm_id',farmIds):Promise.resolve({data:[],error:null});
     const profileQuery=supabase.from('profiles').select('full_name,email').eq('user_id',currentUser.id).maybeSingle();
@@ -320,6 +343,8 @@ async function connectSupabase() {
     const error=results.find(r=>r.error)?.error; if(error) throw error;
     const [reports,sales,cash,terms,stock,members,profile]=results.map(r=>r.data);
     memberships=members||[];farmUsers=memberships;
+    const ownFarm=memberships.find(m=>m.user_id===currentUser.id)?.farm_id;
+    selectedFarm=memberships.some(m=>adminRoles.includes(m.role))?'semua':ownFarm||farms[0]?.id||'semua';
     currentUser={...currentUser,...profile};
     state.stockSnapshots=stock||[];
     state.sales=sales||[];state.cash=cash||[];state.terms=terms||[];
