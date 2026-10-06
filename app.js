@@ -133,16 +133,22 @@ function recentReportRows(rows) {
 function renderChart(rows) {
   if (!rows.length) return '<div class="chart-empty">Belum ada data produksi pada periode ini.</div>';
   const days = Array.from({ length: Math.min(periodDays(), 7) }, (_, i) => shiftDate(-(Math.min(periodDays(), 7) - 1 - i)));
-  const values = days.map(d => rows.filter(r => r.date === d).reduce((sum, r) => sum + Number(r.eggs || 0), 0));
-  if (values.every(v => !v)) return '<div class="chart-empty">Belum ada data produksi pada periode ini.</div>';
-  const max = Math.ceil(Math.max(...values) / 500) * 500 || 500, min = Math.max(0, max - 2500);
+  const values = days.map(d => {
+    const dailyRows=rows.filter(r=>r.date===d&&r.eggs!==null&&r.eggs!==undefined);
+    return dailyRows.length?dailyRows.reduce((sum,r)=>sum+Number(r.eggs),0):null;
+  });
+  const observedValues=values.filter(value=>value!==null);
+  if (!observedValues.length) return '<div class="chart-empty">Belum ada data produksi pada periode ini.</div>';
+  const max = Math.ceil(Math.max(...observedValues) / 500) * 500 || 500, min = 0;
   const x0 = 42, y0 = 18, w = 520, h = 143;
-  const points = values.map((v, i) => [x0 + (days.length === 1 ? w / 2 : (w * i / (days.length - 1))), y0 + h - ((v - min) / (max - min || 1)) * h]);
-  const path = points.map((p, i) => `${i ? 'L' : 'M'}${p[0]},${p[1]}`).join(' ');
-  const area = `${path} L${points.at(-1)[0]},${y0 + h} L${points[0][0]},${y0 + h} Z`;
-  const labels = days.map((d, i) => `<text x="${points[i][0]}" y="186" text-anchor="middle">${new Date(`${d}T12:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</text>`).join('');
-  const circles = points.map((p, i) => `<circle class="point" cx="${p[0]}" cy="${p[1]}" r="3.5"><title>${dateLabel(days[i])}: ${num(values[i])} butir</title></circle>`).join('');
-  return `<svg class="chart" viewBox="0 0 590 200" role="img" aria-label="Tren telur dihasilkan dalam butir per hari"><defs><linearGradient id="areaGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#a9cca1" stop-opacity=".42"/><stop offset="100%" stop-color="#a9cca1" stop-opacity="0"/></linearGradient></defs>${[0,1,2,3].map(i => `<line class="grid" x1="${x0}" x2="570" y1="${y0 + i * h / 3}" y2="${y0 + i * h / 3}"/><text x="34" y="${y0 + i * h / 3 + 3}" text-anchor="end">${num(Math.max(0, max - i * (max - min) / 3))}</text>`).join('')}<path class="area" d="${area}"/><path class="line" d="${path}"/>${circles}${labels}</svg>`;
+  const points = values.map((v,i)=>v===null?null:[x0+(days.length===1?w/2:w*i/(days.length-1)),y0+h-(v-min)/(max-min||1)*h]);
+  const segments=[];
+  points.forEach((point,index)=>{if(!point)return;if(!segments.length||points[index-1]===null)segments.push([]);segments.at(-1).push(point);});
+  const paths=segments.filter(segment=>segment.length>1).map(segment=>segment.map((p,i)=>`${i?'L':'M'}${p[0]},${p[1]}`).join(' '));
+  const areas=segments.filter(segment=>segment.length>1).map(segment=>`${segment.map((p,i)=>`${i?'L':'M'}${p[0]},${p[1]}`).join(' ')} L${segment.at(-1)[0]},${y0+h} L${segment[0][0]},${y0+h} Z`);
+  const labels = days.map((d,i)=>`<text x="${x0+(days.length===1?w/2:w*i/(days.length-1))}" y="186" text-anchor="middle">${new Date(`${d}T12:00:00`).toLocaleDateString('id-ID',{day:'numeric',month:'short'})}</text>`).join('');
+  const circles = points.map((p,i)=>p?`<circle class="point" cx="${p[0]}" cy="${p[1]}" r="3.5"><title>${dateLabel(days[i])}: ${num(values[i])} butir</title></circle>`:'').join('');
+  return `<svg class="chart" viewBox="0 0 590 200" role="img" aria-label="Tren telur dihasilkan dalam butir per hari"><defs><linearGradient id="areaGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#a9cca1" stop-opacity=".42"/><stop offset="100%" stop-color="#a9cca1" stop-opacity="0"/></linearGradient></defs>${[0,1,2,3].map(i=>`<line class="grid" x1="${x0}" x2="570" y1="${y0+i*h/3}" y2="${y0+i*h/3}"/><text x="34" y="${y0+i*h/3+3}" text-anchor="end">${num(max-i*(max-min)/3)}</text>`).join('')}<path class="area" d="${areas.join(' ')}"/><path class="line" d="${paths.join(' ')}"/>${circles}${labels}</svg>`;
 }
 function latestStockForFarm(farmId) {
   const rows=state.stockSnapshots.filter(r=>r.farm_id===farmId).sort((a,b)=>b.snapshot_date.localeCompare(a.snapshot_date));
