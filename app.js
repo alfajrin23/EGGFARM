@@ -89,6 +89,12 @@ function canManageFarm(farmId = selectedFarm) {
   if (backend === 'local') return true;
   return memberships.some(m => adminRoles.includes(m.role)) || adminRoles.includes(roleForFarm(farmId));
 }
+function canManageCashRow(row) {
+  if (backend === 'local') return true;
+  if (row.farm_id) return memberships.some(m => m.farm_id === row.farm_id && adminRoles.includes(m.role));
+  const cikalong = state.farms.find(f => f.code === 'CKL');
+  return Boolean(cikalong && memberships.some(m => m.farm_id === cikalong.id && adminRoles.includes(m.role)));
+}
 function canViewAllFarms() { return backend === 'local' || memberships.some(m => adminRoles.includes(m.role)); }
 function roleDisplay(role) { return role==='petugas'?'Staff':role==='admin_farm'?'Admin farm':role==='manajer'?'Manajer':role==='admin_sistem'?'Admin sistem':'Tanpa akses'; }
 
@@ -282,7 +288,7 @@ function renderCash() {
   const rows = state.cash.filter(c => selectedFarm === 'semua' || c.scope === 'Grup Cikalong' || c.scope === 'Umum/Grup lain' || c.farm_id === selectedFarm).sort((a,b)=>b.date.localeCompare(a.date));
   const isInternal=c=>c.scope==='Pindah dana internal'||c.method==='Pindah dana internal';
   const paid=rows.filter(c=>c.status==='Dibayar'&&!isInternal(c)).reduce((sum,c)=>sum+Number(c.amount||0),0), planned=rows.filter(c=>c.status==='Direncanakan'&&!isInternal(c)).reduce((sum,c)=>sum+Number(c.amount||0),0), pending=rows.filter(c=>c.status==='Perlu verifikasi'&&!isInternal(c)).reduce((sum,c)=>sum+Number(c.amount||0),0), internal=rows.filter(isInternal).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  return `${heading('KAS KELUAR','Kas & pengeluaran','Catat pembayaran eksternal beserta status dan cakupan. Pindah dana internal bukan biaya.', '<button class="btn btn-primary" data-action="new-cash">＋ Tambah transaksi</button>')}<div class="filters">${farmSelect()}<span class="muted-note">Dibayar, direncanakan, dan perlu verifikasi ditampilkan terpisah.</span></div><div class="overview-grid"><article class="metric-card"><div class="metric-top"><span class="metric-icon">✓</span>Kas keluar dibayar</div><div class="cash-total">${rupiah(paid)}</div><div class="metric-foot">Tidak termasuk direncanakan / verifikasi</div></article><article class="metric-card"><div class="metric-top"><span class="metric-icon">◷</span>Direncanakan</div><div class="cash-total">${rupiah(planned)}</div><div class="metric-foot">Belum dibayar</div></article><article class="metric-card"><div class="metric-top"><span class="metric-icon">!</span>Perlu verifikasi</div><div class="cash-total">${rupiah(pending)}</div><div class="metric-foot">Belum dijumlahkan sebagai kas keluar</div></article><article class="metric-card"><div class="metric-top"><span class="metric-icon">↔</span>Pindah dana internal</div><div class="cash-total">${rupiah(internal)}</div><div class="metric-foot">Terpisah dari pengeluaran eksternal</div></article></div><article class="panel" style="margin-top:13px"><div class="panel-heading"><div><h3>Riwayat transaksi</h3><p>Rekap kas keluar sederhana, bukan laporan laba/rugi.</p></div><button class="btn btn-sm" data-action="export-cash">Ekspor CSV</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Tanggal</th><th>Penerima / tujuan</th><th>Kategori</th><th>Cakupan</th><th>Metode</th><th>Jumlah</th><th>Status</th></tr></thead><tbody>${rows.map(c=>`<tr><td><b>${dateLabel(c.date)}</b></td><td>${esc(c.recipient)}<br><span class="muted-note">${esc(c.purpose)}</span></td><td>${esc(c.category)}</td><td>${esc(c.scope)}${c.scope_name?` · ${esc(c.scope_name)}`:''}</td><td>${esc(c.method)}</td><td>${rupiah(c.amount)}</td><td>${statusBadge(c.status)}</td></tr>`).join('')||'<tr><td colspan="7" class="empty-state">Belum ada transaksi.</td></tr>'}</tbody></table></div></article>`;
+  return `${heading('KAS KELUAR','Kas & pengeluaran','Catat pembayaran eksternal beserta status dan cakupan. Pindah dana internal bukan biaya.', '<button class="btn btn-primary" data-action="new-cash">＋ Tambah transaksi</button>')}<div class="filters">${farmSelect()}<span class="muted-note">Dibayar, direncanakan, dan perlu verifikasi ditampilkan terpisah.</span></div><div class="overview-grid"><article class="metric-card"><div class="metric-top"><span class="metric-icon">✓</span>Kas keluar dibayar</div><div class="cash-total">${rupiah(paid)}</div><div class="metric-foot">Tidak termasuk direncanakan / verifikasi</div></article><article class="metric-card"><div class="metric-top"><span class="metric-icon">◷</span>Direncanakan</div><div class="cash-total">${rupiah(planned)}</div><div class="metric-foot">Belum dibayar</div></article><article class="metric-card"><div class="metric-top"><span class="metric-icon">!</span>Perlu verifikasi</div><div class="cash-total">${rupiah(pending)}</div><div class="metric-foot">Belum dijumlahkan sebagai kas keluar</div></article><article class="metric-card"><div class="metric-top"><span class="metric-icon">↔</span>Pindah dana internal</div><div class="cash-total">${rupiah(internal)}</div><div class="metric-foot">Terpisah dari pengeluaran eksternal</div></article></div><article class="panel" style="margin-top:13px"><div class="panel-heading"><div><h3>Riwayat transaksi</h3><p>Rekap kas keluar sederhana, bukan laporan laba/rugi.</p></div><button class="btn btn-sm" data-action="export-cash">Ekspor CSV</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Tanggal</th><th>Penerima / tujuan</th><th>Kategori</th><th>Cakupan</th><th>Metode</th><th>Jumlah</th><th>Status</th><th>Tindakan</th></tr></thead><tbody>${rows.map(c=>`<tr><td><b>${dateLabel(c.date)}</b></td><td>${esc(c.recipient)}<br><span class="muted-note">${esc(c.purpose)}</span></td><td>${esc(c.category)}</td><td>${esc(c.scope)}${c.scope_name?` · ${esc(c.scope_name)}`:''}</td><td>${esc(c.method)}</td><td>${rupiah(c.amount)}</td><td>${statusBadge(c.status)}</td><td>${canManageCashRow(c)?`<div class="row-actions"><button class="btn btn-sm" data-action="edit-cash" data-id="${esc(c.id)}">Edit</button><button class="btn btn-sm btn-danger" data-action="delete-cash" data-id="${esc(c.id)}">Hapus</button></div>`:'—'}</td></tr>`).join('')||'<tr><td colspan="8" class="empty-state">Belum ada transaksi.</td></tr>'}</tbody></table></div></article>`;
 }
 
 function renderReports() {
@@ -396,11 +402,29 @@ function openModal(title, subtitle, body) {
   if (!root.querySelector('.modal')) modalReturnFocus = document.activeElement;
   root.innerHTML = `<div class="modal-backdrop" data-close="true"><section class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}" tabindex="-1"><div class="modal-head"><div><h2>${title}</h2><p>${subtitle}</p></div><button type="button" class="close-button" data-close="true" aria-label="Tutup">×</button></div>${body}</section></div>`;
   bindDateInputs(root);
+  const form = root.querySelector('.modal form');
+  if (form) {
+    const requiredFields = () => [...form.querySelectorAll('input[required],select[required],textarea[required]')]
+      .filter(field => !field.disabled && field.type !== 'hidden' && !field.readOnly && field.getClientRects().length);
+    const firstRequired = requiredFields()[0];
+    if (firstRequired) firstRequired.focus();
+    form.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.ctrlKey || e.altKey) return;
+      if (e.target.matches('textarea,[contenteditable="true"],button')) return;
+      if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement)) return;
+      e.preventDefault();
+      const fields = requiredFields();
+      const currentIndex = [...form.elements].indexOf(e.target);
+      const next = fields.find(field => [...form.elements].indexOf(field) > currentIndex);
+      if (next) next.focus();
+      else form.requestSubmit();
+    });
+  }
   root.onclick = e => {
     if (!(e.target instanceof Element)) return;
     if (e.target.matches('.modal-backdrop') || e.target.closest('[data-close="true"]:not(.modal-backdrop)')) closeModal();
   };
-  root.querySelector('.modal')?.focus();
+  if (!form?.querySelector('input[required],select[required],textarea[required]')) root.querySelector('.modal')?.focus();
 }
 async function viewReportAttachment(id) {
   if(!supabase){toast('Lampiran tersedia saat Supabase terhubung.',true);return;}
@@ -561,7 +585,7 @@ function showCashForm(existing=null) {
  const v=existing||{};
  openModal(existing?'Edit transaksi kas':'Tambah transaksi kas','Pembayaran kepada penerima eksternal dicatat sebagai kas keluar. Transfer internal dicatat terpisah.',`<form id="cashForm" class="form-grid">${formField('Tanggal','date','date',v.date||today(),{required:true})}${formField('Jumlah (Rp)','amount','number',v.amount??'',{money:true,required:true,help:'Contoh: 1000 otomatis tampil sebagai 1.000.'})}${formField('Penerima','recipient','text',v.recipient||'',{required:true,placeholder:'Tukang, pekerja, pemasok…'})}${selectField('Kategori','category',['Upah/tenaga kerja','Alat','Kandang/pembangunan','Operasional','Lainnya'],v.category||'Operasional')}${formField('Tujuan / keterangan','purpose','text',v.purpose||'',{required:true,full:true})}${selectField('Metode','method',['Transfer bank','E-wallet','Tunai','Pindah dana internal'],v.method||'Tunai')}${selectField('Status','status',['Dibayar','Direncanakan','Perlu verifikasi','Dibatalkan'],v.status||'Dibayar')}${selectField('Cakupan','scope',['Grup Cikalong','Lokasi produksi','Proyek pembangunan','Umum/Grup lain','Pindah dana internal'],v.scope||'Lokasi produksi')}${selectField('Lokasi / proyek','farm_id',farmOpts,v.farm_id|| (selectedFarm==='semua'?defaultFarmId():selectedFarm))}${formField('Referensi transfer','reference','text',v.reference||'',{placeholder:'Opsional'})}${formField('Catatan','note','textarea',v.note||'',{full:true})}<div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">${existing?'Simpan koreksi':'Simpan transaksi'}</button></div></form>`);
  const form=$('#cashForm');bindMoneyInputs(form);
- form.addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(form));const operationDate=parseDateInput(f.date);if(!operationDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}f.date=operationDate;const amount=parseMoneyInput(f.amount);if(amount<1){toast('Masukkan jumlah rupiah minimal 1.',true);return;}const farm=farmById(f.farm_id);const groupScope=['Grup Cikalong','Umum/Grup lain','Pindah dana internal'].includes(f.scope);const row={...v,id:v.id||crypto.randomUUID(),...f,amount,farm_id:groupScope?null:f.farm_id,scope_name:groupScope?'':farm?.name||''};await saveRecord('cash',row,existing?'update':'insert');closeModal();render();toast(existing?'Transaksi diperbarui.':'Transaksi kas tersimpan.');});
+ form.addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(form));const operationDate=parseDateInput(f.date);if(!operationDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}f.date=operationDate;const amount=parseMoneyInput(f.amount);if(amount<1){toast('Masukkan jumlah rupiah minimal 1.',true);return;}const farm=farmById(f.farm_id);const groupScope=['Grup Cikalong','Umum/Grup lain','Pindah dana internal'].includes(f.scope);const row={...v,id:v.id||crypto.randomUUID(),...f,amount,farm_id:groupScope?null:f.farm_id,scope_name:groupScope?'':farm?.name||''};try{await saveRecord('cash',row,existing?'update':'insert');closeModal();render();toast(existing?'Transaksi diperbarui.':'Transaksi kas tersimpan.');}catch{}});
 }
 function showFarmForm(farm=null) {
  openModal(farm?'Kelola tempat produksi':'Tambah tempat produksi',farm?'Perubahan status dan lokasi tidak menghapus catatan historis.':'Tambahkan lokasi baru. Lokasi nonoperasional tidak masuk agregat produksi aktif.',`<form id="farmForm" class="form-grid">${formField('Nama lokasi','name','text',farm?.name||'',{required:true})}${formField('Kode unik','code','text',farm?.code||'',{required:true})}${formField('Alamat / wilayah','region','text',farm?.region||'',{required:true})}${selectField('Zona waktu','timezone',['Asia/Jakarta','Asia/Makassar','Asia/Jayapura'],farm?.timezone||'Asia/Jakarta')}${selectField('Status','status',['Pembangunan','Persiapan','Beroperasi','Jeda','Ditutup'],farm?.status||'Pembangunan')}${formField('Tanggal mulai operasi','start_date','date',farm?.start_date||'')}${formField('Penanggung jawab','responsible','text',farm?.responsible||'')}${farm?formField('Catatan perubahan','change_note','text','',{required:true,full:true,placeholder:'Alasan perubahan status atau detail lokasi'}):''}<div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">${farm?'Simpan perubahan':'Buat lokasi'}</button></div></form>`);
@@ -592,11 +616,12 @@ async function saveRecord(table,row,operation='insert') {
       if(table==='stockRules') { payload.updated_by=actor;payload.updated_at=new Date().toISOString(); }
       if(table==='farms') { payload.start_date=payload.start_date||null;payload.updated_at=new Date().toISOString();delete payload.change_note; }
       if(table==='farms') { payload.timezone=payload.timezone||'Asia/Jakarta'; }
-      const result=operation==='update'
-        ?table==='sales'?await supabase.from(dbTable).update(payload).eq('id',row.id).select('id'):await supabase.from(dbTable).update(payload).eq('id',row.id)
+    const result=operation==='update'
+        ?['sales','cash'].includes(table)?await supabase.from(dbTable).update(payload).eq('id',row.id).select('id'):await supabase.from(dbTable).update(payload).eq('id',row.id)
         :operation==='upsert'?await supabase.from(dbTable).upsert(payload,{onConflict:'farm_id,snapshot_date,category,unit'}):await supabase.from(dbTable).insert(payload);
       if(result.error) throw result.error;
       if(operation==='update'&&table==='sales'&&!result.data?.length) throw new Error('Penjualan tidak tersimpan: tidak ada baris yang diperbarui. Periksa akses admin lokasi atau muat ulang data penjualan.');
+      if(operation==='update'&&table==='cash'&&!result.data?.length) throw new Error('Transaksi kas tidak tersimpan: tidak ada baris yang diperbarui. Periksa hak akses cakupan transaksi atau muat ulang data kas.');
       if(Object.hasOwn(auditSources,dbTable)){
         const auditResult=await supabase.from('audit_events').select('*').order('created_at',{ascending:false}).limit(500);
         if(!auditResult.error)state.auditEvents=auditResult.data||[];
@@ -616,15 +641,15 @@ async function saveRecord(table,row,operation='insert') {
 }
 
 async function deleteRecord(table,id) {
-  if(!['reports','sales'].includes(table)){toast('Jenis data ini tidak dapat dihapus dari sini.',true);return;}
-  const rows=table==='reports'?state.reports:state.sales;
+  if(!['reports','sales','cash'].includes(table)){toast('Jenis data ini tidak dapat dihapus dari sini.',true);return;}
+  const rows=table==='reports'?state.reports:table==='sales'?state.sales:state.cash;
   const row=rows.find(item=>item.id===id);
-  if(!row||!canManageFarm(row.farm_id)){toast('Hanya admin lokasi yang dapat menghapus data ini.',true);return;}
-  const label=table==='reports'?'laporan produksi':'transaksi penjualan';
+  if(!row||!(table==='cash'?canManageCashRow(row):canManageFarm(row.farm_id))){toast('Anda tidak memiliki hak admin untuk menghapus data ini.',true);return;}
+  const label=table==='reports'?'laporan produksi':table==='sales'?'transaksi penjualan':'transaksi kas';
   if(!window.confirm(`Hapus ${label} tanggal ${dateLabel(row.date)}? Aksi ini menghapus data sumber. Perubahan dan nilai sebelum dihapus tetap tercatat di Log input.`))return;
   try{
     if(backend==='supabase'&&supabase){
-      const dbTable=table==='reports'?'daily_reports':'sales';
+      const dbTable=table==='reports'?'daily_reports':table==='sales'?'sales':'cash_transactions';
       const result=await supabase.from(dbTable).delete().eq('id',id).select('id');
       if(result.error)throw result.error;
       if(!result.data?.length)throw new Error('Tidak ada baris yang terhapus. Periksa hak admin dan muat ulang data.');
@@ -632,7 +657,8 @@ async function deleteRecord(table,id) {
       if(!auditResult.error)state.auditEvents=auditResult.data||[];
     }
     if(table==='reports')state.reports=state.reports.filter(item=>item.id!==id);
-    else state.sales=state.sales.filter(item=>item.id!==id);
+    else if(table==='sales')state.sales=state.sales.filter(item=>item.id!==id);
+    else state.cash=state.cash.filter(item=>item.id!==id);
     persist();render();toast(`${label[0].toUpperCase()+label.slice(1)} dihapus.`);
   }catch(error){console.error(error);toast(`Tidak dapat menghapus ${label}: ${error.message}`,true);}
 }
@@ -710,7 +736,7 @@ function showSetPasswordForm(errorMessage='') {
 document.addEventListener('click',e=>{
   const go=e.target.closest('[data-go]'); if(go){location.hash=go.dataset.go;$('#sidebar').classList.remove('open');}
   const nav=e.target.closest('[data-view]'); if(nav){view=nav.dataset.view;location.hash=view;render();$('#sidebar').classList.remove('open');}
-  const action=e.target.closest('[data-action]'); if(action){const id=action.dataset.id;switch(action.dataset.action){case'new-report':showReportForm();break;case'edit-report':showReportForm(state.reports.find(row=>row.id===id));break;case'delete-report':deleteRecord('reports',id);break;case'choose-report-image':$('#reportImagePicker')?.click();break;case'remove-report-image':pendingReportImages.splice(Number(action.dataset.index),1);renderReportImageQueue();break;case'view-report-attachment':viewReportAttachment(id);break;case'new-sale':showSaleForm();break;case'edit-sale':showSaleForm(state.sales.find(row=>row.id===id));break;case'delete-sale':deleteRecord('sales',id);break;case'new-stock':showStockForm();break;case'add-stock-rule':showStockRuleForm();break;case'edit-stock-rule':showStockRuleForm(state.stockRules.find(row=>row.id===id));break;case'new-cash':showCashForm();break;case'new-farm':showFarmForm();break;case'edit-farm':showFarmForm(farmById(id));break;case'add-term':showTermForm();break;case'edit-audit-record':editAuditRecord(action.dataset.table,id);break;case'invite-staff':showInviteStaffForm();break;case'sign-out':if(supabase)supabase.auth.signOut().then(()=>{currentUser=null;memberships=[];farmUsers=[];showAuthForm();});break;case'export-production':exportCsv('production');break;case'export-sales':exportCsv('sales');break;case'export-cash':exportCsv('cash');break;case'export-report':exportCsv('report');break;case'print':window.print();break;case'connection-info':connectionInfo();break;}}
+  const action=e.target.closest('[data-action]'); if(action){const id=action.dataset.id;switch(action.dataset.action){case'new-report':showReportForm();break;case'edit-report':showReportForm(state.reports.find(row=>row.id===id));break;case'delete-report':deleteRecord('reports',id);break;case'choose-report-image':$('#reportImagePicker')?.click();break;case'remove-report-image':pendingReportImages.splice(Number(action.dataset.index),1);renderReportImageQueue();break;case'view-report-attachment':viewReportAttachment(id);break;case'new-sale':showSaleForm();break;case'edit-sale':showSaleForm(state.sales.find(row=>row.id===id));break;case'delete-sale':deleteRecord('sales',id);break;case'new-stock':showStockForm();break;case'add-stock-rule':showStockRuleForm();break;case'edit-stock-rule':showStockRuleForm(state.stockRules.find(row=>row.id===id));break;case'new-cash':showCashForm();break;case'edit-cash':showCashForm(state.cash.find(row=>row.id===id));break;case'delete-cash':deleteRecord('cash',id);break;case'new-farm':showFarmForm();break;case'edit-farm':showFarmForm(farmById(id));break;case'add-term':showTermForm();break;case'edit-audit-record':editAuditRecord(action.dataset.table,id);break;case'invite-staff':showInviteStaffForm();break;case'sign-out':if(supabase)supabase.auth.signOut().then(()=>{currentUser=null;memberships=[];farmUsers=[];showAuthForm();});break;case'export-production':exportCsv('production');break;case'export-sales':exportCsv('sales');break;case'export-cash':exportCsv('cash');break;case'export-report':exportCsv('report');break;case'print':window.print();break;case'connection-info':connectionInfo();break;}}
 });
 window.addEventListener('hashchange',()=>{view=location.hash.slice(1)||'ringkasan';render();});
 $('#mobileMenu').addEventListener('click',()=>$('#sidebar').classList.toggle('open'));
