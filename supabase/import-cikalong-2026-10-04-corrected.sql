@@ -1,6 +1,6 @@
 -- Catatan produksi dan saldo stok Cikalong untuk 4 Oktober 2026.
--- Sumber baru menggantikan catatan 4 Okt yang lebih awal (3.360 butir/191,63 kg;
--- snapshot 40 peti). Jalankan aman berulang: laporan tanggal/lokasi diperbarui,
+-- Catatan produksi lama tetap dipertahankan; relasinya/tanggal operasinya perlu
+-- rekonsiliasi lokal. Jalankan aman berulang: laporan 4 Okt diperbarui,
 -- snapshot kategori yang memiliki angka di-upsert.
 --
 -- Nilai petugas disimpan terpisah dari KPI yang dihitung. Ayam hidup dan total
@@ -8,18 +8,6 @@
 -- mentah disimpan di catatan; tanda "-" untuk TU bukan angka nol.
 
 begin;
-
--- Catatan 3.360/191,63 kg sebelumnya tersimpan tanggal 3 Okt, padahal
--- pengguna mengonfirmasi tanggal operasinya 4 Okt. Data 4 Okt terkini di bawah
--- menggantikannya; hapus salinan salah tanggal agar grafik tidak menjumlahkan
--- dua laporan pada 3 Okt. Trigger audit menyimpan jejak penghapusan.
-delete from public.daily_reports d
-using public.farms f
-where d.farm_id=f.id and f.code='CKL'
-  and d.date=date '2026-10-03'
-  and d.house_id is null and d.flock_id is null
-  and d.eggs=3360 and d.kg=191.63
-  and d.note like '%Tanggal operasi 4 Okt dikonfirmasi pengguna%';
 
 do $$
 declare
@@ -43,7 +31,7 @@ begin
       hh_reported='54.51',
       birds=null,
       feed=null,
-      note='Sumber WhatsApp, Prod 4/10: 3399/194.63; Pt. 12+1/180kg; Su 10.8kg; Jb 1.89kg; Tc 2.08kg; Tot. 194,77; Sst. +0.16; HD 95.21%; Fi 112.01gram; Berat telor 57.26gram; Fcr 2.06; Hh 54.51. Tanggal operasi 4 Okt dikonfirmasi pengguna. PT 12+1/180kg, Tot, dan HH dipertahankan sebagai teks mentah; populasi ayam hidup dan pakan total tidak tersedia sehingga KPI tidak dihitung ulang. Menggantikan catatan produksi 4 Okt yang lebih awal.'
+      note='Sumber WhatsApp, Prod 4/10: 3399/194.63; Pt. 12+1/180kg; Su 10.8kg; Jb 1.89kg; Tc 2.08kg; Tot. 194,77; Sst. +0.16; HD 95.21%; Fi 112.01gram; Berat telor 57.26gram; Fcr 2.06; Hh 54.51. Tanggal operasi 4 Okt dikonfirmasi pengguna. PT 12+1/180kg, Tot, dan HH dipertahankan sebagai teks mentah; populasi ayam hidup dan pakan total tidak tersedia sehingga KPI tidak dihitung ulang. Catatan 3.360/191,63 kg yang terpisah tetap dipertahankan menunggu rekonsiliasi tanggal dan hubungan kedua laporan.'
   where farm_id=target_farm and date=date '2026-10-04' and house_id is null and flock_id is null;
 
   if not found then
@@ -51,7 +39,7 @@ begin
       (farm_id,date,eggs,kg,total_reported_kg,su,jb,tc,sst,hd_reported,fi_reported,ew_reported,fcr_reported,hh_reported,birds,feed,note,status)
     values
       (target_farm,date '2026-10-04',3399,194.63,194.77,10.8,1.89,2.08,0.16,95.21,112.01,57.26,2.06,'54.51',null,null,
-       'Sumber WhatsApp, Prod 4/10: 3399/194.63; Pt. 12+1/180kg; Su 10.8kg; Jb 1.89kg; Tc 2.08kg; Tot. 194,77; Sst. +0.16; HD 95.21%; Fi 112.01gram; Berat telor 57.26gram; Fcr 2.06; Hh 54.51. Tanggal operasi 4 Okt dikonfirmasi pengguna. PT 12+1/180kg, Tot, dan HH dipertahankan sebagai teks mentah; populasi ayam hidup dan pakan total tidak tersedia sehingga KPI tidak dihitung ulang. Menggantikan catatan produksi 4 Okt yang lebih awal.',
+       'Sumber WhatsApp, Prod 4/10: 3399/194.63; Pt. 12+1/180kg; Su 10.8kg; Jb 1.89kg; Tc 2.08kg; Tot. 194,77; Sst. +0.16; HD 95.21%; Fi 112.01gram; Berat telor 57.26gram; Fcr 2.06; Hh 54.51. Tanggal operasi 4 Okt dikonfirmasi pengguna. PT 12+1/180kg, Tot, dan HH dipertahankan sebagai teks mentah; populasi ayam hidup dan pakan total tidak tersedia sehingga KPI tidak dihitung ulang. Catatan 3.360/191,63 kg yang terpisah tetap dipertahankan menunggu rekonsiliasi tanggal dan hubungan kedua laporan.',
        'dikirim');
   end if;
 end $$;

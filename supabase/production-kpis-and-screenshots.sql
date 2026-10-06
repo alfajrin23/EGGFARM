@@ -29,13 +29,6 @@ do $$ begin
   end if;
 end $$;
 
--- The UI currently records one unassigned daily report per farm/day. The
--- original UNIQUE(farm_id,date,house_id,flock_id) permits duplicates when IDs
--- are NULL, so enforce the intended one-per-day rule for that case.
-create unique index if not exists daily_reports_unassigned_farm_date_uidx
-  on public.daily_reports(farm_id,date)
-  where house_id is null and flock_id is null;
-
 create table if not exists public.daily_report_attachments (
   id uuid primary key default gen_random_uuid(),
   report_id uuid not null references public.daily_reports(id) on delete cascade,
