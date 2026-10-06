@@ -452,12 +452,6 @@ function formatDateForInput(value) {
   if(iso)return `${iso[3]}/${iso[2]}/${iso[1]}`;
   return text;
 }
-function formatDateTyping(value) {
-  const digits=String(value??'').replace(/\D/g,'').slice(0,8);
-  if(digits.length>4)return `${digits.slice(0,2)}/${digits.slice(2,4)}/${digits.slice(4)}`;
-  if(digits.length>2)return `${digits.slice(0,2)}/${digits.slice(2)}`;
-  return digits;
-}
 function parseDateInput(value) {
   const match=String(value??'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if(!match)return null;
@@ -467,15 +461,55 @@ function parseDateInput(value) {
   return `${match[3]}-${match[2]}-${match[1]}`;
 }
 function bindDateInputs(root) {
-  $$('[data-date-input="true"]',root).forEach(input=>input.addEventListener('input',()=>{
-    const previous=input.value,caret=input.selectionStart??previous.length;
-    const digitsBeforeCaret=previous.slice(0,caret).replace(/\D/g,'').length;
-    const formatted=formatDateTyping(previous);
-    input.value=formatted;
-    let nextCaret=0,seen=0;
-    while(nextCaret<formatted.length&&seen<digitsBeforeCaret){if(/\d/.test(formatted[nextCaret]))seen++;nextCaret++;}
-    input.setSelectionRange(nextCaret,nextCaret);
-  }));
+  $$('[data-date-input="true"]',root).forEach(input=>{
+    const digitPositions=[0,1,3,4,6,7,8,9];
+    const segmentAt=position=>position<3?[0,2]:position<6?[3,5]:[6,10];
+    const nextPosition=position=>position===1?3:position===4?6:position+1;
+    const readChars=()=>/^[\d ]{2}\/[\d ]{2}\/[\d ]{4}$/.test(input.value)?input.value.split(''):'  /  /    '.split('');
+    const putValue=(chars,position)=>{input.value=chars.join('');input.setSelectionRange(position,position);};
+    input.addEventListener('focus',()=>input.setSelectionRange(0,2));
+    input.addEventListener('beforeinput',event=>{
+      if(!event.inputType?.startsWith('insert'))return;
+      const text=event.data??event.dataTransfer?.getData('text')??'';
+      const digits=text.replace(/\D/g,'');
+      if(!digits)return;
+      event.preventDefault();
+      let chars=readChars();
+      let start=input.selectionStart??0,end=input.selectionEnd??start;
+      if(start===0&&end>=10){chars='  /  /    '.split('');start=0;end=0;}
+      else {
+        const [segmentStart,segmentEnd]=segmentAt(start);
+        if(end>start&&start===segmentStart&&end===segmentEnd){
+          for(let i=segmentStart;i<segmentEnd;i++)chars[i]=' ';
+          end=start;
+        }
+      }
+      let position=start;
+      for(const digit of digits){
+        while(position<10&&!digitPositions.includes(position))position++;
+        if(position>=10)break;
+        chars[position]=digit;
+        position=nextPosition(position);
+      }
+      putValue(chars,position);
+    });
+    input.addEventListener('keydown',event=>{
+      if(event.key!=='Backspace'&&event.key!=='Delete')return;
+      event.preventDefault();
+      const chars=readChars();
+      let start=input.selectionStart??0,end=input.selectionEnd??start;
+      if(start===end){
+        let position=event.key==='Backspace'?start-1:start;
+        while(position>=0&&position<10&&!digitPositions.includes(position))position+=event.key==='Backspace'?-1:1;
+        if(position<0||position>=10)return;
+        chars[position]=' ';
+        start=position;
+      }else{
+        for(let position=start;position<end;position++)if(digitPositions.includes(position))chars[position]=' ';
+      }
+      putValue(chars,start);
+    });
+  });
 }
 function formatMoneyInput(value) {
   const digits=String(value??'').replace(/\D/g,'');
