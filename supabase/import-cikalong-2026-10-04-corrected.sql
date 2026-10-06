@@ -9,6 +9,18 @@
 
 begin;
 
+-- Catatan 3.360/191,63 kg sebelumnya tersimpan tanggal 3 Okt, padahal
+-- pengguna mengonfirmasi tanggal operasinya 4 Okt. Data 4 Okt terkini di bawah
+-- menggantikannya; hapus salinan salah tanggal agar grafik tidak menjumlahkan
+-- dua laporan pada 3 Okt. Trigger audit menyimpan jejak penghapusan.
+delete from public.daily_reports d
+using public.farms f
+where d.farm_id=f.id and f.code='CKL'
+  and d.date=date '2026-10-03'
+  and d.house_id is null and d.flock_id is null
+  and d.eggs=3360 and d.kg=191.63
+  and d.note like '%Tanggal operasi 4 Okt dikonfirmasi pengguna%';
+
 do $$
 declare
   target_farm uuid;
