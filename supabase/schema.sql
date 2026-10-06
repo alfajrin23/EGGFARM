@@ -50,6 +50,7 @@ create table if not exists public.daily_reports (
   date date not null,
   eggs numeric(14,2),
   kg numeric(14,3),
+  total_reported_kg numeric(14,3) check (total_reported_kg is null or total_reported_kg >= 0),
   su numeric(14,3),
   jb numeric(14,3),
   tc numeric(14,3),

@@ -1,11 +1,18 @@
 -- Reported production KPIs and private screenshot attachments.
 -- Safe to rerun in an existing Supabase project.
 alter table public.daily_reports
+  add column if not exists total_reported_kg numeric(14,3),
   add column if not exists hd_reported numeric(8,3),
   add column if not exists fi_reported numeric(10,3),
   add column if not exists ew_reported numeric(8,3),
   add column if not exists fcr_reported numeric(10,4),
   add column if not exists hh_reported text;
+
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname='daily_reports_total_reported_kg_nonnegative_check' and conrelid='public.daily_reports'::regclass) then
+    alter table public.daily_reports add constraint daily_reports_total_reported_kg_nonnegative_check check (total_reported_kg is null or total_reported_kg >= 0);
+  end if;
+end $$;
 
 do $$ begin
   if not exists (select 1 from pg_constraint where conname='daily_reports_hd_reported_range_check' and conrelid='public.daily_reports'::regclass) then
