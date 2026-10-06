@@ -56,6 +56,11 @@ create table if not exists public.daily_reports (
   sst numeric(14,3),
   birds integer,
   feed numeric(14,3),
+  hd_reported numeric(8,3) check (hd_reported is null or (hd_reported >= 0 and hd_reported <= 100)),
+  fi_reported numeric(10,3) check (fi_reported is null or fi_reported >= 0),
+  ew_reported numeric(8,3) check (ew_reported is null or ew_reported >= 0),
+  fcr_reported numeric(10,4) check (fcr_reported is null or fcr_reported >= 0),
+  hh_reported text,
   note text not null default '',
   status text not null default 'dikirim' check (status in ('draf','dikirim','disetujui','dikoreksi')),
   version integer not null default 1,
@@ -67,6 +72,22 @@ create table if not exists public.daily_reports (
   check (birds is null or birds >= 0),
   unique (farm_id,date,house_id,flock_id)
 );
+
+create table if not exists public.daily_report_attachments (
+  id uuid primary key default gen_random_uuid(),
+  report_id uuid not null references public.daily_reports(id) on delete cascade,
+  farm_id uuid not null references public.farms(id) on delete cascade,
+  storage_path text not null unique,
+  filename text not null,
+  content_type text not null check (content_type like 'image/%'),
+  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 10485760),
+  uploaded_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+values ('report-screenshots','report-screenshots',false,10485760,array['image/jpeg','image/png','image/webp','image/gif'])
+on conflict (id) do update set public=false,file_size_limit=10485760,allowed_mime_types=excluded.allowed_mime_types;
 
 create table if not exists public.sales (
   id uuid primary key default gen_random_uuid(),
@@ -254,6 +275,7 @@ alter table public.cash_transactions enable row level security;
 alter table public.dictionary_terms enable row level security;
 alter table public.audit_events enable row level security;
 alter table public.farm_stock_rules enable row level security;
+alter table public.daily_report_attachments enable row level security;
 
 drop policy if exists "members can view farms" on public.farms;
 create policy "members can view farms" on public.farms for select to authenticated using (public.is_farm_member(id) or public.is_farm_admin());
@@ -291,6 +313,26 @@ drop policy if exists "admins can update reports" on public.daily_reports;
 create policy "admins can update reports" on public.daily_reports for update to authenticated using (public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem'])) with check (public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem']));
 drop policy if exists "admins can delete reports" on public.daily_reports;
 create policy "admins can delete reports" on public.daily_reports for delete to authenticated using (public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem']));
+
+drop policy if exists "members can view report attachments" on public.daily_report_attachments;
+create policy "members can view report attachments" on public.daily_report_attachments for select to authenticated
+using (public.is_farm_member(farm_id) or public.is_farm_admin());
+drop policy if exists "members can add report attachments" on public.daily_report_attachments;
+create policy "members can add report attachments" on public.daily_report_attachments for insert to authenticated
+with check (uploaded_by=auth.uid() and (public.is_farm_member(daily_report_attachments.farm_id) or public.is_farm_admin()) and exists (select 1 from public.daily_reports r where r.id=daily_report_attachments.report_id and r.farm_id=daily_report_attachments.farm_id));
+drop policy if exists "admins can remove report attachments" on public.daily_report_attachments;
+create policy "admins can remove report attachments" on public.daily_report_attachments for delete to authenticated
+using (public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem']) or public.is_farm_admin());
+
+drop policy if exists "members can read report screenshot files" on storage.objects;
+create policy "members can read report screenshot files" on storage.objects for select to authenticated
+using (bucket_id='report-screenshots' and (public.is_farm_admin() or public.is_farm_member(((storage.foldername(name))[1])::uuid)));
+drop policy if exists "members can upload report screenshot files" on storage.objects;
+create policy "members can upload report screenshot files" on storage.objects for insert to authenticated
+with check (bucket_id='report-screenshots' and (public.is_farm_admin() or public.is_farm_member(((storage.foldername(name))[1])::uuid)));
+drop policy if exists "owners or admins can remove report screenshot files" on storage.objects;
+create policy "owners or admins can remove report screenshot files" on storage.objects for delete to authenticated
+using (bucket_id='report-screenshots' and (public.is_farm_admin() or (owner_id=auth.uid()::text and public.is_farm_member(((storage.foldername(name))[1])::uuid))));
 
 drop policy if exists "farm members can view sales" on public.sales;
 create policy "farm members can view sales" on public.sales for select to authenticated using (public.is_farm_member(farm_id) or public.is_farm_admin());
