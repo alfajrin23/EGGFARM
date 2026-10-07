@@ -36,3 +36,6 @@
 @media (max-width: 1050px) {
   .dashboard-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.stock-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 8px 0; border-top: 1px solid #edf0eb; border-bottom: 1px solid #edf0eb; }
+.stock-flow span { font-size: 9px; color: #829083; }
+.stock-flow b { font-size: 9px; color: #39483c; text-align: right; }

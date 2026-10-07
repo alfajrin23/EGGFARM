@@ -268,13 +268,40 @@ function stockPosition(farmId,category,unit='kg',date=today(),excludeSaleId=null
   const requested=unit==='peti'&&kgPerPeti?available/kgPerPeti:available;
   return {available:requested,unit,known,snapshotDate,notes:[...new Set(notes)],rule};
 }
+function stockMovementBreakdown(farmId,category,date=today()) {
+  const rule=state.stockRules.find(item=>item.farm_id===farmId&&item.stock_category===category)||null;
+  const kgPerPeti=Number(rule?.kg_per_peti)||0;
+  const snapshots=state.stockSnapshots.filter(item=>item.farm_id===farmId&&item.category===category&&item.snapshot_date<=date);
+  const snapshotDate=snapshots.reduce((latest,item)=>item.snapshot_date>latest?item.snapshot_date:latest,'');
+  const baselineRows=snapshotDate?snapshots.filter(item=>item.snapshot_date===snapshotDate):[];
+  const baselineCreatedAt=baselineRows.reduce((latest,item)=>!latest||String(item.created_at||'')>latest?String(item.created_at||''):latest,'');
+  const afterSnapshot=item=>!snapshotDate||item.date>snapshotDate||(item.date===snapshotDate&&baselineCreatedAt&&item.created_at&&String(item.created_at)>baselineCreatedAt);
+  const openingKg=baselineRows.reduce((sum,item)=>sum+(item.unit==='kg'?Number(item.quantity||0):item.unit==='peti'&&kgPerPeti?Number(item.quantity||0)*kgPerPeti:0),0);
+  const reports=state.reports.filter(item=>item.farm_id===farmId&&item.date<=date&&afterSnapshot(item));
+  const field=category.toLocaleLowerCase();
+  const producedKg=category==='PT'?0:reports.reduce((sum,item)=>sum+Number(item[field]||0),0);
+  const sales=state.sales.filter(item=>item.farm_id===farmId&&item.status==='Dibayar'&&item.date<=date&&afterSnapshot(item)&&((item.stock_category||stockRuleFor(farmId,item.category)?.stock_category)===category));
+  const soldKg=sales.reduce((sum,sale)=>{
+    let quantity=Number(sale.normalized_quantity),unit=sale.normalized_unit;
+    if(!unit){const normalized=normalizeSaleForStock(farmId,sale.category,sale.quantity,sale.unit);quantity=Number(normalized.normalized_quantity);unit=normalized.normalized_unit;}
+    return sum+(unit==='kg'?quantity:unit==='peti'&&kgPerPeti?quantity*kgPerPeti:0);
+  },0);
+  const ptReports=category==='PT'?reports.map(ptPackingValues):[];
+  const pt={
+    full:ptReports.reduce((sum,item)=>sum+Number(item.full||0),0),
+    partial:ptReports.reduce((sum,item)=>sum+Number(item.partial||0),0),
+    kg:ptReports.reduce((sum,item)=>sum+Number(item.kg||0),0),
+    has:ptReports.some(item=>item.full!==null||item.partial!==null||item.kg!==null)
+  };
+  return {openingKg,producedKg,soldKg,position:stockPosition(farmId,category,'kg',date),snapshotDate,pt};
+}
 function renderStockAvailability() {
   const farms=selectedFarm==='semua'?state.farms.filter(farm=>farm.status==='Beroperasi'):state.farms.filter(farm=>farm.id===selectedFarm);
   const cards=farms.flatMap(farm=>{
     const categories=[...new Set(state.stockRules.filter(rule=>rule.farm_id===farm.id&&rule.stock_category).map(rule=>rule.stock_category))];
-    return categories.map(category=>{const position=stockPosition(farm.id,category,'kg');const crateRule=state.stockRules.find(rule=>rule.farm_id===farm.id&&rule.stock_category===category&&Number(rule.kg_per_peti)>0);const crates=crateRule&&position.known?position.available/Number(crateRule.kg_per_peti):null;return `<div class="stock-available-card"><div><b>${esc(farm.name)} · ${esc(category)}</b><small>${position.snapshotDate?`Saldo dasar ${dateLabel(position.snapshotDate)}`:'Belum ada snapshot awal'}</small></div><strong>${position.known?`${num(position.available,2)} kg`:'Perlu konversi'}</strong>${crates!==null?`<small>≈ ${num(crates,2)} peti · ${num(crateRule.kg_per_peti,2)} kg/peti${crateRule.conversion_confirmed?'':' (asumsi)'}</small>`:''}<small>${esc(position.notes.join(' · ')||'Saldo mencakup produksi setelah snapshot dan penjualan dibayar.')}</small></div>`;});
+    return categories.map(category=>{const movement=stockMovementBreakdown(farm.id,category),position=movement.position;const crateRule=state.stockRules.find(rule=>rule.farm_id===farm.id&&rule.stock_category===category&&Number(rule.kg_per_peti)>0);const crates=crateRule&&position.known?position.available/Number(crateRule.kg_per_peti):null;return `<div class="stock-available-card"><div><b>${esc(farm.name)} · ${esc(category)}</b><small>${position.snapshotDate?`Saldo dasar ${dateLabel(position.snapshotDate)}`:'Belum ada snapshot awal'}</small></div><strong>${position.known?`${num(position.available,2)} kg sisa`:'Perlu konversi'}</strong><div class="stock-flow"><span>Saldo snapshot</span><b>${movement.snapshotDate?`${num(movement.openingKg,2)} kg`:'Belum dicatat'}</b><span>Produksi sortir setelah snapshot</span><b>+ ${num(movement.producedKg,2)} kg</b><span>Penjualan dibayar sejak snapshot</span><b>− ${num(movement.soldKg,2)} kg</b></div>${crates!==null?`<small>≈ ${num(crates,2)} peti · ${num(crateRule.kg_per_peti,2)} kg/peti${crateRule.conversion_confirmed?'':' (asumsi)'}</small>`:''}${movement.pt.has?`<small>PT produksi dilaporkan: ${num(movement.pt.full)} peti penuh + ${num(movement.pt.partial)} peti parsial · ${num(movement.pt.kg,2)} kg tercatat. Belum dimasukkan ke sisa kg agar tidak dihitung ganda.</small>`:''}<small>${esc(position.notes.join(' · ')||'Sisa dihitung dari saldo dasar + produksi sortir − penjualan dibayar.')}</small></div>`;});
   }).join('');
-  return `<article class="panel stock-available-panel"><div class="panel-heading"><div><h3>Stok tersedia setelah penjualan dibayar</h3><p>Saldo per kategori: snapshot terakhir + sortir produksi setelah snapshot − penjualan berstatus Dibayar.</p></div></div>${cards?`<div class="stock-available-grid">${cards}</div>`:'<div class="empty-state">Aturan hubungan kategori belum tersedia. Admin dapat mengaturnya di bawah.</div>'}<p class="muted-note">Untuk transaksi pada tanggal snapshot yang sama, urutan waktu catatannya dipakai bila tersedia. Peti dan kg hanya dikonversi memakai aturan farm.</p></article>`;
+  return `<article class="panel stock-available-panel"><div class="panel-heading"><div><h3>Stok produksi & sisa setelah penjualan</h3><p>Per kategori: saldo snapshot + produksi sortir setelah snapshot − penjualan berstatus Dibayar = sisa terhitung.</p></div></div>${cards?`<div class="stock-available-grid">${cards}</div>`:'<div class="empty-state">Aturan hubungan kategori belum tersedia. Admin dapat mengaturnya di bawah.</div>'}<p class="muted-note">Angka kg dan peti tidak dijumlahkan. Produksi telur mentah tidak otomatis ditambahkan ke saldo kategori; PT ditampilkan sebagai laporan pengemasan terpisah sampai berat peti parsial direkonsiliasi.</p></article>`;
 }
 function renderStockRulesPanel() {
   if(!canViewAllFarms()) return '';
