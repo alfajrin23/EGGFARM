@@ -125,6 +125,19 @@ function filteredSales(farmId = selectedFarm) {
 function paidSalesTotal(sales) {
   return sales.filter(s => (s.status || 'Dibayar') === 'Dibayar').reduce((total, sale) => total + Number(sale.amount || 0), 0);
 }
+function isInternalCash(cash) { return cash.scope==='Pindah dana internal'||cash.method==='Pindah dana internal'; }
+function dashboardCashRows(farmId=selectedFarm) {
+  const cutoff=shiftDate(-(periodDays()-1)), selected=farmId==='semua'?null:farmById(farmId);
+  return state.cash.filter(c=>{
+    const matchesFarm=farmId==='semua'
+      ?(!c.farm_id||farmById(c.farm_id)?.status==='Beroperasi')
+      :(c.farm_id===farmId||(c.scope==='Grup Cikalong'&&selected?.code==='CKL'));
+    return matchesFarm&&c.date>=cutoff&&c.date<=today();
+  });
+}
+function paidCashOutTotal(rows) {
+  return rows.filter(c=>c.status==='Dibayar'&&!isInternalCash(c)).reduce((total,c)=>total+Number(c.amount||0),0);
+}
 function farmSelect(value = selectedFarm, includeAll = true) {
   const showAll = includeAll && canViewAllFarms();
   return `<div class="select-wrap"><select class="select-control" id="farmFilter">${showAll ? '<option value="semua">Semua lokasi aktif</option>' : ''}${state.farms.map(f => `<option value="${esc(f.id)}" ${value === f.id ? 'selected' : ''}>${esc(f.name)}${f.status !== 'Beroperasi' ? ` · ${esc(f.status)}` : ''}</option>`).join('')}</select></div>`;
@@ -279,15 +292,17 @@ function renderDashboard() {
   const good = reports.reduce((s, r) => s + Number(r.su || 0) + Number(r.jb || 0), 0);
   const sold = sales.reduce((s, r) => s + (r.unit === 'kg' ? Number(r.quantity || 0) : Number(r.quantity || 0) * .058), 0);
   const salesRevenue = paidSalesTotal(sales);
+  const cashOut = paidCashOutTotal(dashboardCashRows());
   const farm = selectedFarm === 'semua' ? null : farmById(selectedFarm);
   const action = `<button class="btn btn-primary" data-action="new-report">＋ Catat produksi</button><button class="btn" data-go="laporan">Lihat laporan</button>`;
   return `${heading('OPERASI FARM', farm ? `Selamat pagi, tim ${esc(farm.name)}.` : 'Ringkasan semua lokasi aktif.', 'Pantau catatan produksi, pergerakan telur, dan hal yang perlu ditinjau.', action)}
     <div class="filters"><span class="filter-label">Tampilkan data</span>${farmSelect()}<div class="select-wrap"><select class="select-control" id="periodFilter"><option value="hariini" ${period === 'hariini' ? 'selected' : ''}>Hari ini</option><option value="7hari" ${period === '7hari' ? 'selected' : ''}>7 hari terakhir</option><option value="30hari" ${period === '30hari' ? 'selected' : ''}>30 hari terakhir</option></select></div><span class="connection-indicator ${backend === 'supabase' ? 'connected' : 'offline'}"><i></i>${backend === 'supabase' ? 'Supabase tersambung' : 'Mode demo lokal'}</span></div>
-    <div class="overview-grid">
+    <div class="overview-grid dashboard-overview-grid">
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">◒</span>Telur dihasilkan</div><div class="metric-value">${num(eggs)} <small>butir</small></div><div class="metric-foot">${num(kg, 2)} kg · ${reports.length} hari tercatat</div></article>
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">✓</span>Hasil sortir utuh</div><div class="metric-value">${num(good, 2)} <small>kg</small></div><div class="metric-foot">SU + JB · perlu konfirmasi SOP</div></article>
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">↗</span>Terjual</div><div class="metric-value">${num(sold, 2)} <small>kg</small></div><div class="metric-foot">${sales.length} transaksi · stok dihitung terpisah</div></article>
-      <article class="metric-card"><div class="metric-top"><span class="metric-icon">Rp</span>Nilai penjualan</div><div class="metric-value metric-currency">${rupiah(salesRevenue)}</div><div class="metric-foot">Transaksi dibayar pada periode ini</div></article>
+      <article class="metric-card"><div class="metric-top"><span class="metric-icon">Rp</span>Total penjualan dibayar</div><div class="metric-value metric-currency">${rupiah(salesRevenue)}</div><div class="metric-foot">Penjualan berstatus Dibayar · periode terpilih</div></article>
+      <article class="metric-card"><div class="metric-top"><span class="metric-icon">Rp</span>Kas keluar dibayar</div><div class="metric-value metric-currency">${rupiah(cashOut)}</div><div class="metric-foot">Pengeluaran dibayar · periode terpilih</div></article>
       <article class="metric-card"><div class="metric-top"><span class="metric-icon">▣</span>Saldo stok</div><div class="metric-value">${latestStockForFarm(selectedFarm==='semua'?state.farms.find(f=>f.status==='Beroperasi')?.id:selectedFarm).length?'Tercatat':'Belum'}</div><div class="metric-foot">Lihat snapshot menurut kategori dan satuan di bawah</div></article>
     </div>
     <div class="section-kicker"><h2>Stok telur saat ini</h2><span>Snapshot fisik dan saldo terhitung ditampilkan terpisah</span></div>${renderStockAvailability()}${dashboardStockSnapshotPanel()}
