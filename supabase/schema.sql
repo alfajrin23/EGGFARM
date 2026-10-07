@@ -281,7 +281,7 @@ alter table public.daily_report_attachments enable row level security;
 drop policy if exists "members can view farms" on public.farms;
 create policy "members can view farms" on public.farms for select to authenticated using (public.is_farm_member(id) or public.is_farm_admin());
 drop policy if exists "managers can update farms" on public.farms;
-create policy "managers can update farms" on public.farms for update to authenticated using (public.has_farm_role(id,array['manajer','admin_sistem'])) with check (public.has_farm_role(id,array['manajer','admin_sistem']));
+create policy "managers can update farms" on public.farms for update to authenticated using (public.is_farm_admin() or public.has_farm_role(id,array['manajer','admin_sistem'])) with check (public.is_farm_admin() or public.has_farm_role(id,array['manajer','admin_sistem']));
 drop policy if exists "system admins can create farms" on public.farms;
 create policy "system admins can create farms" on public.farms for insert to authenticated with check (public.is_system_admin());
 
@@ -347,8 +347,10 @@ create policy "admins can manage farm stock rules" on public.farm_stock_rules fo
 
 drop policy if exists "members can view cash transactions" on public.cash_transactions;
 create policy "members can view cash transactions" on public.cash_transactions for select to authenticated using ((farm_id is null and (public.is_group_member() or public.is_farm_admin())) or public.is_farm_member(farm_id) or public.is_farm_admin());
+drop policy if exists "farm members can record local cash transactions" on public.cash_transactions;
+create policy "farm members can record local cash transactions" on public.cash_transactions for insert to authenticated with check (farm_id is not null and (public.is_farm_member(farm_id) or public.is_farm_admin()) and created_by=auth.uid());
 drop policy if exists "admins can manage cash transactions" on public.cash_transactions;
-create policy "admins can manage cash transactions" on public.cash_transactions for all to authenticated using ((farm_id is null and public.can_manage_group_cash()) or public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem'])) with check ((farm_id is null and public.can_manage_group_cash()) or public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem']));
+create policy "admins can manage cash transactions" on public.cash_transactions for all to authenticated using ((farm_id is null and public.can_manage_group_cash()) or (farm_id is not null and (public.is_farm_admin() or public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem'])))) with check ((farm_id is null and public.can_manage_group_cash()) or (farm_id is not null and (public.is_farm_admin() or public.has_farm_role(farm_id,array['admin_farm','manajer','admin_sistem']))));
 
 drop policy if exists "members can view terms" on public.dictionary_terms;
 create policy "members can view terms" on public.dictionary_terms for select to authenticated using (farm_id is null or public.is_farm_member(farm_id) or public.is_farm_admin());
