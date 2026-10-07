@@ -21,19 +21,19 @@ begin;
 
 -- Laporan produksi 1-4 Oktober. Nilai yang tidak tersedia dibiarkan NULL.
 insert into public.daily_reports
-  (farm_id, date, eggs, kg, su, jb, tc, sst, note, status)
-select f.id, v.date, v.eggs, v.kg, v.su, v.jb, v.tc, v.sst, v.note, 'dikirim'
+  (farm_id, date, eggs, kg, pt_reported, su, jb, tc, sst, note, status)
+select f.id, v.date, v.eggs, v.kg, v.pt_reported, v.su, v.jb, v.tc, v.sst, v.note, 'dikirim'
 from public.farms f
 cross join (values
-  (date '2026-10-01', 3376::numeric, 192.07::numeric, 5.63::numeric, 2.78::numeric, 2.34::numeric, -1.32::numeric,
+  (date '2026-10-01', 3376::numeric, 192.07::numeric, '12/180kg', 5.63::numeric, 2.78::numeric, 2.34::numeric, -1.32::numeric,
    'Asli: Prod 1/10; 3376/192.07; Pt. 12/180kg; Su 5.63kg; Jb 2.78kg; Tc 2.34kg; Sst -1.32kg; HD 94.46%; FI 111.92 gram; berat telur 56.89 gram; FCR 2,08; HH 53.74. PT, HD, FI, FCR, HH disimpan sebagai catatan mentah; populasi/pakan total tidak disimpulkan.'),
-  (date '2026-10-02', 3387::numeric, 193.78::numeric, 9.47::numeric, 1.59::numeric, 2.10::numeric, -0.60::numeric,
+  (date '2026-10-02', 3387::numeric, 193.78::numeric, '12+1/180kg', 9.47::numeric, 1.59::numeric, 2.10::numeric, -0.60::numeric,
    'Asli: Prod 2/10; 3387/193.78; Pt. 12+1/180kg (notasi tidak ditafsirkan); Su 9.47kg; Jb 1.59kg; Tc 2.1kg; Sst -0.6kg; HD 94.77%; FI 111.92 gram; berat telur 57.21 gram; FCR 2,06; HH 54.72. PT, HD, FI, FCR, HH disimpan sebagai catatan mentah; populasi/pakan total tidak disimpulkan.'),
-  (date '2026-10-03', 3402::numeric, 193.85::numeric, 9.60::numeric, 1.83::numeric, 1.55::numeric, -0.87::numeric,
+  (date '2026-10-03', 3402::numeric, 193.85::numeric, '12/180kg', 9.60::numeric, 1.83::numeric, 1.55::numeric, -0.87::numeric,
    'Asli: Prod 3/10; 3402/193.85; Pt. 12/180kg; Su 9.6kg; Jb 1.83kg; Tc 1.55kg; Sst -0.87kg; HD 95.24%; FI 111.92 gram; berat telur 56.98 gram; FCR 2,06; HH 54.27. PT, HD, FI, FCR, HH disimpan sebagai catatan mentah; populasi/pakan total tidak disimpulkan.'),
-  (date '2026-10-04', 3360::numeric, 191.63::numeric, 7.40::numeric, 1.56::numeric, 1.98::numeric, 0.69::numeric,
+  (date '2026-10-04', 3360::numeric, 191.63::numeric, '12/180kg', 7.40::numeric, 1.56::numeric, 1.98::numeric, 0.69::numeric,
    'Asli: pesan WhatsApp diterima 4 Okt pukul 19.09; teks laporan Prod 3/10; 3360/191.63; Pt. 12/180kg; Su 7.4kg; Jb 1.56kg; Tc 1.98kg; Tot. 190.94; Sst. 0.69kg; HD 94.09%; FI 112.01 gram; berat telur 57.21 gram; FCR 2,09; HH 54.27. Tanggal operasi 4 Okt dikonfirmasi pengguna; Tot dan SST disimpan sesuai laporan tanpa menafsirkan selisih; populasi/pakan total tidak disimpulkan.')
-) as v(date, eggs, kg, su, jb, tc, sst, note)
+) as v(date, eggs, kg, pt_reported, su, jb, tc, sst, note)
 where f.code = 'CKL'
   and not exists (
     select 1 from public.daily_reports d

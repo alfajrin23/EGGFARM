@@ -19,6 +19,7 @@ begin
   update public.daily_reports
   set eggs=3399,
       kg=194.63,
+      pt_reported='12+1/180kg',
       total_reported_kg=194.77,
       su=10.8,
       jb=1.89,
@@ -36,9 +37,9 @@ begin
 
   if not found then
     insert into public.daily_reports
-      (farm_id,date,eggs,kg,total_reported_kg,su,jb,tc,sst,hd_reported,fi_reported,ew_reported,fcr_reported,hh_reported,birds,feed,note,status)
+      (farm_id,date,eggs,kg,pt_reported,total_reported_kg,su,jb,tc,sst,hd_reported,fi_reported,ew_reported,fcr_reported,hh_reported,birds,feed,note,status)
     values
-      (target_farm,date '2026-10-04',3399,194.63,194.77,10.8,1.89,2.08,0.16,95.21,112.01,57.26,2.06,'54.51',null,null,
+      (target_farm,date '2026-10-04',3399,194.63,'12+1/180kg',194.77,10.8,1.89,2.08,0.16,95.21,112.01,57.26,2.06,'54.51',null,null,
        'Sumber WhatsApp, Prod 4/10: 3399/194.63; Pt. 12+1/180kg; Su 10.8kg; Jb 1.89kg; Tc 2.08kg; Tot. 194,77; Sst. +0.16; HD 95.21%; Fi 112.01gram; Berat telor 57.26gram; Fcr 2.06; Hh 54.51. Tanggal operasi 4 Okt dikonfirmasi pengguna. PT 12+1/180kg, Tot, dan HH dipertahankan sebagai teks mentah; populasi ayam hidup dan pakan total tidak tersedia sehingga KPI tidak dihitung ulang. Catatan 3.360/191,63 kg yang terpisah tetap dipertahankan menunggu rekonsiliasi tanggal dan hubungan kedua laporan.',
        'dikirim');
   end if;
