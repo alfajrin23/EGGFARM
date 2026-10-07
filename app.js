@@ -73,6 +73,9 @@ let farmUsers = [];
 let modalReturnFocus = null;
 let stockRulesReady = true;
 let pendingReportImages = [];
+let pendingSmartEvidence = { stock: [], sales: [], cash: [] };
+let recordAttachments = [];
+let recordAttachmentsReady = false;
 let authFlowType = new URLSearchParams(location.hash.slice(1)).get('type') || new URLSearchParams(location.search).get('type') || '';
 
 const adminRoles = ['admin_farm','manajer','admin_sistem'];
@@ -553,7 +556,165 @@ function addReportImages(files) {
     if(pendingReportImages.length+accepted.length>=5){toast('Maksimal 5 screenshot per laporan.',true);break;}
     accepted.push(file);
   }
-  pendingReportImages.push(...accepted);renderReportImageQueue();
+  pendingReportImages.push(...accepted);renderReportImageQueue();renderSmartCaptureFiles('production');
+}
+function capturePanel(type, title, subtitle, options={}) {
+  const roleSelect=type==='sales'?`<select class="input-control" id="captureEvidenceKind" aria-label="Jenis bukti"><option value="nota">Nota penjualan</option><option value="transfer">Bukti transfer</option></select>`:'';
+  return `<section class="smart-capture full" aria-label="${esc(title)}"><div class="smart-capture-head"><div><b>${esc(title)}</b><small>${esc(subtitle)}</small></div></div><div class="smart-capture-tools"><button type="button" class="btn btn-sm" id="capturePasteImage">Tempel gambar clipboard</button><button type="button" class="btn btn-sm" id="captureChooseImage">Pilih gambar</button>${roleSelect}<input id="captureImagePicker" type="file" accept="image/*" multiple hidden></div><div id="captureImagePreview" class="smart-capture-files"></div><label class="smart-capture-label" for="captureText">Tempel teks catatan / hasil baca gambar</label><textarea class="input-control smart-capture-text" id="captureText" placeholder="Tempel teks di sini, atau pilih gambar lalu tekan Baca screenshot."></textarea><div class="smart-capture-tools"><button type="button" class="btn btn-sm" id="captureRunOcr">Baca screenshot</button><button type="button" class="btn btn-sm btn-primary" id="captureApplyText">Isi form dari teks</button><span class="muted-note" id="captureStatus">Data hanya diterapkan ke form untuk ditinjau; belum disimpan.</span></div>${options.note?`<small class="muted-note">${esc(options.note)}</small>`:''}</section>`;
+}
+function captureFiles(type) { return type==='production'?pendingReportImages.map(file=>({file,kind:'screenshot'})):pendingSmartEvidence[type]||[]; }
+function renderSmartCaptureFiles(type) {
+  const host=$('#captureImagePreview');if(!host)return;
+  const files=captureFiles(type);
+  host.innerHTML=files.map((entry,index)=>`<div class="smart-capture-file"><img src="${esc(URL.createObjectURL(entry.file))}" alt="Bukti ${esc(entry.file.name)}"><span>${type==='sales'?`${entry.kind==='transfer'?'Transfer':'Nota'} · `:''}${esc(entry.file.name)}</span><button type="button" class="btn btn-sm btn-danger" data-capture-remove="${index}">Hapus</button></div>`).join('')||'<span class="muted-note">Belum ada gambar.</span>';
+  host.querySelectorAll('[data-capture-remove]').forEach(button=>button.addEventListener('click',()=>{
+    const index=Number(button.dataset.captureRemove);
+    if(type==='production'){pendingReportImages.splice(index,1);renderReportImageQueue();}
+    else pendingSmartEvidence[type].splice(index,1);
+    renderSmartCaptureFiles(type);
+  }));
+}
+function addSmartEvidence(type, files) {
+  if(type==='production'){addReportImages(files);renderSmartCaptureFiles(type);return;}
+  const role=type==='sales'?($('#captureEvidenceKind')?.value||'nota'):'screenshot';
+  for(const file of files){
+    if(!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)){toast(`${file.name}: pilih gambar JPG, PNG, WEBP, atau GIF.`,true);continue;}
+    if(file.size>10*1024*1024){toast(`${file.name}: ukuran maksimal 10 MB.`,true);continue;}
+    if(pendingSmartEvidence[type].length>=6){toast('Maksimal 6 bukti gambar per transaksi.',true);break;}
+    pendingSmartEvidence[type].push({file,kind:role});
+  }
+  renderSmartCaptureFiles(type);
+}
+async function readClipboardImages(type) {
+  try{
+    if(!navigator.clipboard?.read)throw new Error('Akses baca clipboard tidak tersedia di browser ini.');
+    const items=await navigator.clipboard.read(),files=[];
+    for(const item of items)for(const mime of item.types.filter(value=>value.startsWith('image/'))){const blob=await item.getType(mime);files.push(new File([blob],`clipboard-${Date.now()}.${mime.split('/')[1]||'png'}`,{type:mime}));}
+    if(files.length){addSmartEvidence(type,files);return;}
+    for(const item of items)if(item.types.includes('text/plain')){$('#captureText').value=await (await item.getType('text/plain')).text();toast('Teks clipboard dimasukkan. Tekan “Isi form dari teks” untuk meninjau hasil.');return;}
+    toast('Clipboard tidak berisi gambar atau teks yang dapat dibaca.',true);
+  }catch(error){toast('Clipboard tidak dapat dibaca. Fokuskan kolom teks lalu tekan Ctrl+V, atau pilih gambar dari perangkat.',true);}
+}
+async function loadOcrEngine() {
+  if(window.Tesseract)return window.Tesseract;
+  await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';script.onload=resolve;script.onerror=()=>reject(new Error('Pustaka OCR tidak dapat dimuat. Periksa koneksi internet.'));document.head.append(script);});
+  if(!window.Tesseract?.recognize)throw new Error('Pustaka OCR tidak tersedia.');
+  return window.Tesseract;
+}
+async function runCaptureOcr(type) {
+  const button=$('#captureRunOcr'),status=$('#captureStatus'),files=captureFiles(type);
+  if(!files.length){toast('Tempel atau pilih screenshot terlebih dahulu.',true);return;}
+  button.disabled=true;status.textContent='Membaca gambar…';
+  try{
+    const ocr=await loadOcrEngine(),recognized=[];
+    for(const {file,kind} of files){const result=await ocr.recognize(file,'ind+eng');recognized.push(`${kind==='transfer'?'Bukti transfer':'Screenshot'} — ${file.name}\n${result.data.text}`);}
+    const area=$('#captureText');area.value=[area.value.trim(),...recognized].filter(Boolean).join('\n\n');status.textContent='Teks terdeteksi. Periksa dan koreksi teks, lalu tekan “Isi form dari teks”.';
+  }catch(error){status.textContent='OCR gagal.';toast(error.message||'Gagal membaca screenshot.',true);}
+  finally{button.disabled=false;}
+}
+function parseCaptureDate(text) {
+  const named=String(text).match(/\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Okt(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(20\d{2})\b/i);
+  const months={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,okt:10,nov:11,dec:12};
+  if(named){const month=months[named[2].slice(0,3).toLowerCase()];return `${named[3]}-${String(month).padStart(2,'0')}-${String(named[1]).padStart(2,'0')}`;}
+  const numeric=String(text).match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
+  if(!numeric)return null;
+  const year=numeric[3]?(numeric[3].length===2?`20${numeric[3]}`:numeric[3]):today().slice(0,4);
+  const day=Number(numeric[1]),month=Number(numeric[2]),date=new Date(Date.UTC(Number(year),month-1,day));
+  if(date.getUTCFullYear()!==Number(year)||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)return null;
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+function captureNumber(text) { return Number(String(text).replace(/,/g,'.').replace(/[^\d.+-]/g,''))||0; }
+function captureMoney(text) { return parseMoneyInput(String(text).replace(/([.,]\d{2})\s*$/,'').replace(/\b(?:idr|rp\.?)/gi,'')); }
+function parseSmartCapture(type,text) {
+  const source=String(text||'').replace(/\u00a0/g,' '),fields={};
+  const date=parseCaptureDate(source);if(date)fields.date=date;
+  const valueAfter=(label)=>{const match=source.match(new RegExp(`(?:^|\\b)(?:${label})\\s*[:.]?\\s*([+-]?\\d+(?:[.,]\\d+)?)`,'im'));return match?.[1]??null;};
+  if(type==='production'){
+    const pair=source.match(/\b(\d{3,6})\s*[\/|]\s*(\d{2,3}[.,]\d{1,3})\b/);if(pair){fields.eggs=pair[1];fields.kg=captureNumber(pair[2]);}
+    const reportedTotal=valueAfter('tot(?:al)?');if(reportedTotal!==null)fields.total_reported_kg=captureNumber(reportedTotal);
+    for(const [field,label] of [['su','su'],['jb','jb'],['tc','tc'],['sst','sst'],['hd_reported','hd'],['fi_reported','fi'],['ew_reported','berat\s+tel(?:u|o)r'],['fcr_reported','fcr'],['hh_reported','hh']]){const value=valueAfter(label);if(value!==null)fields[field]=field==='hh_reported'?value:captureNumber(value);}
+    const birds=valueAfter('ayam\\s+hidup|populasi');if(birds!==null)fields.birds=captureNumber(birds);
+    const feed=valueAfter('pakan(?:\\s+total)?');if(feed!==null)fields.feed=captureNumber(feed);
+  }else if(type==='stock'){
+    if(date)fields.snapshot_date=date;
+    const peti=source.match(/(?:stok\s*)?(\d+(?:[.,]\d+)?)\s*(?:pt\.?|peti)\b/i);if(peti)fields.PT=captureNumber(peti[1]);
+    for(const [field,label] of [['TU','tu'],['SU','su'],['JB','jb'],['TC','tc']]){const value=valueAfter(label);if(value!==null)fields[field]=captureNumber(value);}
+  }else if(type==='sales'){
+    const weight=source.match(/(\d+(?:[.,]\d+)?)\s*kg\b/i);if(weight){fields.quantity=captureNumber(weight[1]);fields.unit='kg';}
+    const price=source.match(/(?:x|@|harga(?:\s*\/\s*kg)?)\s*(?:idr|rp\.?\s*)?([\d.,]+)/i);if(price)fields.unit_price=captureMoney(price[1]);
+    const total=source.match(/(?:=|total(?:\s*(?:bayar|transfer))?|transfer\s+amount)\s*(?:idr|rp\.?\s*)?([\d.,]+)/i)||source.match(/\bIDR\s*([\d,]+(?:\.\d{2})?)/i);if(total)fields.amount=captureMoney(total[1]);
+    if(!fields.amount&&fields.quantity&&fields.unit_price)fields.amount=fields.quantity*fields.unit_price;
+    const customer=source.match(/(?:nama\s+pengirim|sender(?:\s+name)?|payer(?:\s+name)?|pelanggan|customer|pembeli)\s*(?:[:\-]\s*|\s+)([^\r\n]+)/i);if(customer)fields.customer=customer[1].trim();
+    if(/transfer\s+successful|transfer\s+amount|bukti\s+transfer/i.test(source)){fields.payment_method='Transfer bank';fields.status='Dibayar';}
+    else if(/tunai|cash/i.test(source))fields.payment_method='Tunai';
+    const category=source.match(/tel(?:u|o)r\s*(ayam|jumbo|bagus|retak|ecer|15\s*kg(?:\s*x\s*\d+\s*(?:krat|peti))?)/i);if(category)fields.detected_category=`Telur ${category[1]}`;
+  }else if(type==='cash'){
+    const amount=source.match(/(?:jumlah|total|nominal|amount|idr|rp\.?)[^\d]{0,12}(\d[\d.,]*)/i);if(amount)fields.amount=captureMoney(amount[1]);
+    const recipient=source.match(/(?:penerima|kepada|recipient|beneficiary(?:\s+name)?|untuk|dibayarkan\s+kepada)\s*(?:[:\-]\s*|\s+)([^\r\n]+)/i);if(recipient)fields.recipient=recipient[1].trim();
+    const purpose=source.match(/(?:tujuan|keperluan|keterangan|purpose)\s*[:\-]\s*([^\r\n]+)/i);if(purpose)fields.purpose=purpose[1].trim();
+    if(/transfer\s+successful|transfer\s+amount/i.test(source))fields.method='Transfer bank';
+  }
+  return fields;
+}
+function applySmartCapture(type,form) {
+  const fields=parseSmartCapture(type,$('#captureText')?.value||'');let applied=0;
+  const map=fields;
+  for(const [name,value] of Object.entries(map)){
+    if(name==='unit_price'||name==='detected_category')continue;
+    const input=form.elements.namedItem(name);if(!input||!('value'in input))continue;
+    if(input.tagName==='SELECT'&&!([...input.options].some(option=>option.value.toLowerCase()===String(value).toLowerCase()))){
+      const match=[...input.options].find(option=>option.textContent.toLowerCase().includes(String(value).toLowerCase()));if(!match)continue;input.value=match.value;
+    }else input.value=['date','snapshot_date'].includes(name)?formatDateForInput(value):input.dataset.money==='true'?formatMoneyInput(value):String(value);
+    input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));applied++;
+  }
+  if(type==='sales'&&fields.detected_category){
+    const category=form.elements.namedItem('category');
+    const option=category&&[...category.options].find(item=>item.value.toLocaleLowerCase()===fields.detected_category.toLocaleLowerCase());
+    if(option){category.value=option.value;category.dispatchEvent(new Event('change',{bubbles:true}));applied++;}
+  }
+  const status=$('#captureStatus');status.textContent=`${applied} field diisi untuk ditinjau.${fields.detected_category?` Kategori terbaca “${fields.detected_category}”; pilih kategori yang sesuai aturan stok.`:''}`;
+  if(!applied)toast('Belum ada data yang dikenali. Koreksi teks lalu coba lagi, atau isi form manual.',true);
+}
+function setupSmartCapture(type,form,addFiles=files=>addSmartEvidence(type,files),entityId=null) {
+  const picker=$('#captureImagePicker'),textarea=$('#captureText');
+  $('#captureChooseImage')?.addEventListener('click',()=>picker?.click());
+  $('#capturePasteImage')?.addEventListener('click',()=>readClipboardImages(type));
+  $('#captureRunOcr')?.addEventListener('click',()=>runCaptureOcr(type));
+  $('#captureApplyText')?.addEventListener('click',()=>applySmartCapture(type,form));
+  picker?.addEventListener('change',()=>{addFiles([...picker.files]);picker.value='';renderSmartCaptureFiles(type);});
+  form.addEventListener('paste',event=>{const images=[...(event.clipboardData?.items||[])].filter(item=>item.type.startsWith('image/')).map(item=>item.getAsFile()).filter(Boolean);if(images.length){event.preventDefault();addFiles(images);renderSmartCaptureFiles(type);}});
+  renderSmartCaptureFiles(type);
+  const table=type==='stock'?'stock_snapshots':type==='cash'?'cash_transactions':'sales';
+  const saved=recordAttachments.filter(item=>item.entity_table===table&&item.entity_id===entityId);
+  if(saved.length){const host=$('#captureImagePreview');host.insertAdjacentHTML('beforeend',`<div class="smart-capture-saved"><b>Bukti tersimpan</b>${saved.map(item=>`<button type="button" class="btn btn-sm" data-view-record-attachment="${esc(item.id)}">${esc(item.attachment_kind==='transfer'?'Transfer':item.attachment_kind==='nota'?'Nota':'Screenshot')} · ${esc(item.filename)}</button>`).join('')}</div>`);host.querySelectorAll('[data-view-record-attachment]').forEach(button=>button.addEventListener('click',()=>viewRecordAttachment(button.dataset.viewRecordAttachment)));}
+}
+async function saveSmartEvidence(type,row) {
+  const items=pendingSmartEvidence[type]||[];if(!items.length)return;
+  if(backend!=='supabase'||!supabase)throw new Error('Bukti gambar perlu Supabase aktif.');
+  const actor=(await supabase.auth.getUser()).data.user?.id;
+  const entityTable=type==='stock'?'stock_snapshots':type==='cash'?'cash_transactions':'sales';
+  const storageFarmId=row.farm_id||defaultFarmId();
+  for(const {file,kind} of items){
+    const ext=(file.name.split('.').pop()||file.type.split('/')[1]||'png').toLowerCase().replace(/[^a-z0-9]/g,'')||'png';
+    const path=`${storageFarmId}/${type}/${row.id}/${crypto.randomUUID()}.${ext}`;
+    const uploaded=await supabase.storage.from('report-screenshots').upload(path,file,{contentType:file.type,upsert:false});if(uploaded.error)throw uploaded.error;
+    const inserted=await supabase.from('record_attachments').insert({entity_table:entityTable,entity_id:row.id,farm_id:storageFarmId,attachment_kind:kind,storage_path:path,filename:file.name,content_type:file.type,size_bytes:file.size,uploaded_by:actor}).select('*').single();
+    if(inserted.error){await supabase.storage.from('report-screenshots').remove([path]);throw inserted.error;}
+    recordAttachments.unshift(inserted.data);
+  }
+  pendingSmartEvidence[type]=[];
+}
+function canSaveSmartEvidence(type) {
+  if(!(pendingSmartEvidence[type]||[]).length)return true;
+  if(backend!=='supabase'||!supabase){toast('Hubungkan Supabase sebelum menyimpan transaksi dengan bukti gambar.',true);return false;}
+  if(!recordAttachmentsReady){toast('Tabel bukti belum tersedia. Jalankan supabase/smart-capture-evidence.sql di Supabase SQL Editor, lalu muat ulang aplikasi.',true);return false;}
+  return true;
+}
+async function viewRecordAttachment(id) {
+  const attachment=recordAttachments.find(item=>item.id===id);if(!attachment||!supabase){toast('Bukti tidak tersedia.',true);return;}
+  const {data,error}=await supabase.storage.from('report-screenshots').createSignedUrl(attachment.storage_path,300);
+  if(error){toast(`Bukti tidak dapat dibuka: ${error.message}`,true);return;}
+  window.open(data.signedUrl,'_blank','noopener');
 }
 function showReportForm(existing=null) {
   pendingReportImages=[];
@@ -562,8 +723,9 @@ function showReportForm(existing=null) {
   const savedAttachments=state.reportAttachments.filter(a=>a.report_id===v.id);
   openModal(existing?'Edit laporan produksi':'Catat produksi harian','Produksi, KPI yang dilaporkan, dan hasil hitung disimpan terpisah.', `<form id="reportForm" class="form-grid">${selectField('Lokasi','farm_id',opts,v.farm_id||(selectedFarm==='semua'?defaultFarmId():selectedFarm))}${formField('Tanggal operasi','date','date',v.date||today(),{required:true})}${formField('Telur dihasilkan','eggs','number',v.eggs??'',{required:true,min:0,step:'1',help:'Masukkan jumlah butir; kg dicatat terpisah.'})}${formField('Berat telur utama (kg)','kg','number',v.kg??'',{required:true,min:0,step:'0.01'})}${formField('Tot. dilaporkan (kg)','total_reported_kg','number',v.total_reported_kg??'',{min:0,step:'0.01',help:'Total mentah dari pesan petugas; disimpan terpisah dari berat utama.'})}${formField('SU · sisa utuh (kg)','su','number',v.su??'',{min:0,step:'0.01'})}${formField('JB · jumbo (kg)','jb','number',v.jb??'',{min:0,step:'0.01'})}${formField('TC · telur cair/rusak (kg)','tc','number',v.tc??'',{min:0,step:'0.01'})}${formField('SST · susut (kg)','sst','number',v.sst??'',{step:'0.01',help:'Nilai bertanda disimpan sesuai input; isi alasan bila ada.'})}${formField('Ayam hidup (ekor)','birds','number',v.birds??'',{min:0,step:'1'})}${formField('Pakan tercatat (kg)','feed','number',v.feed??'',{min:0,step:'0.01',help:'Pakan total untuk menghitung FCR; FI yang dilaporkan diisi terpisah.'})}${formField('HD / HDP dilaporkan (%)','hd_reported','number',v.hd_reported??'',{min:0,max:100,step:'0.01',help:'Persentase dari catatan petugas; tidak dihitung ulang.'})}${formField('FI dilaporkan (gram; basis belum dikonfirmasi)','fi_reported','number',v.fi_reported??'',{min:0,step:'0.01',help:'Feed Intake; umumnya g/ekor/hari, tetapi basis catatan Anda belum dipastikan.'})}${formField('Berat telur dilaporkan (g/butir)','ew_reported','number',v.ew_reported??'',{min:0,step:'0.01'})}${formField('FCR dilaporkan','fcr_reported','number',v.fcr_reported??'',{min:0,step:'0.01',help:'Feed Conversion Ratio; nilai laporan terpisah dari FCR hitungan.'})}${formField('HH dilaporkan (teks)','hh_reported','text',v.hh_reported??'',{placeholder:'Contoh: 54.51',help:'Satuan/metode HH belum dipastikan; simpan angka mentah sebagai teks.'})}${formField('Catatan / teks mentah','note','textarea',v.note||'',{full:true,placeholder:'Kode atau notasi yang belum dipetakan dapat disimpan di sini.'})}<div class="field full"><label>Screenshot sumber</label><div id="reportDropzone" class="report-dropzone" tabindex="0"><input id="reportImagePicker" type="file" accept="image/*" multiple hidden><button type="button" class="btn btn-sm" data-action="choose-report-image">Pilih gambar</button><span>atau tempel screenshot (Ctrl+V) / tarik file ke area ini</span><small>Maksimal 5 gambar, 10 MB per gambar.</small></div><div id="reportImagePreview" class="report-image-list"></div>${savedAttachments.length?`<div class="report-saved-files"><b>Screenshot tersimpan</b>${savedAttachments.map(a=>`<button type="button" class="btn btn-sm" data-action="view-report-attachment" data-id="${esc(a.id)}">${esc(a.filename)}</button>`).join('')}</div>`:''}</div><div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">${existing?'Simpan koreksi':'Simpan laporan'}</button></div></form>`);
   const form=$('#reportForm'), picker=$('#reportImagePicker'), dropzone=$('#reportDropzone');
+  dropzone.hidden=true;dropzone.insertAdjacentHTML('afterend',capturePanel('production','Baca screenshot atau teks catatan','Tempel teks WhatsApp, paste screenshot, atau pilih gambar. Periksa hasil sebelum simpan.'));
+  setupSmartCapture('production',form,addReportImages);
   picker.addEventListener('change',()=>{addReportImages([...picker.files]);picker.value='';});
-  form.addEventListener('paste',e=>{const files=[...(e.clipboardData?.items||[])].filter(item=>item.type.startsWith('image/')).map(item=>item.getAsFile()).filter(Boolean);if(files.length){e.preventDefault();addReportImages(files);}});
   for(const eventName of ['dragover','drop'])dropzone.addEventListener(eventName,e=>{e.preventDefault();if(eventName==='drop')addReportImages([...e.dataTransfer.files]);});
   form.addEventListener('submit', async e=>{
     e.preventDefault();const button=form.querySelector('button.btn-primary');button.disabled=true;button.textContent='Menyimpan…';
@@ -601,20 +763,24 @@ function showSaleForm(existing=null) {
   if(!categoryOptions.some(([value])=>value===v.category)&&v.category)categoryOptions.unshift([v.category,v.category]);
   const initialStatus=v.status||'Dibayar';
   openModal(existing?'Edit penjualan':'Catat penjualan','Satuan mentah tetap disimpan. Penjualan dibayar mengurangi stok setelah konversi kategori diperhitungkan.',`<form id="saleForm" class="form-grid">${selectField('Lokasi','farm_id',farmOpts,defaultFarm)}${formField('Tanggal penjualan','date','date',v.date||today(),{required:true})}${formField('Pelanggan','customer','text',v.customer||'',{placeholder:'Opsional'})}${selectField('Kategori','category',categoryOptions,v.category||categories[0])}${formField('Jumlah','quantity','number',v.quantity??'',{required:true,min:0.001,step:'0.001'})}${selectField('Satuan','unit',['kg','butir','peti'],v.unit||'kg')}${formField('Nilai penjualan (Rp)','amount','number',v.amount??'',{money:true,help:'Harga/pembayaran opsional. Contoh: 1000 otomatis tampil sebagai 1.000.'})}${selectField('Metode pembayaran','payment_method',['Belum dicatat','Tunai','Transfer bank','E-wallet'],v.payment_method||'Belum dicatat')}${selectField('Status','status',['Dibayar','Direncanakan','Perlu verifikasi','Dibatalkan'],initialStatus)}<div id="saleStockPreview" class="sale-stock-preview full" aria-live="polite"></div>${formField('Catatan / surat jalan','note','textarea',v.note||'',{full:true})}<div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">${existing?'Simpan koreksi':'Simpan penjualan'}</button></div></form>`);
-  const form=$('#saleForm');bindMoneyInputs(form);
+  const form=$('#saleForm');form.querySelector('.form-actions').insertAdjacentHTML('beforebegin',capturePanel('sales','Nota & bukti pembayaran','Nota wajib dilampirkan. Jika Transfer bank dipilih, bukti transfer juga wajib. Nama pembeli diambil hanya bila tertulis jelas sebagai pengirim.'));
+  pendingSmartEvidence.sales=[];setupSmartCapture('sales',form,undefined,v.id);
+  bindMoneyInputs(form);
   const updateCategoryOptions=(farmId,selected)=>{const select=form.elements.category;select.innerHTML=categoriesFor(farmId).map(category=>{const rule=stockRuleFor(farmId,category);return `<option value="${esc(category)}" ${category===selected?'selected':''}>${esc(rule?.stock_category?`${category} → ${rule.stock_category}`:`${category} · belum dipetakan`)}</option>`}).join('');if(!select.value&&select.options.length)select.selectedIndex=0;};
   const syncQuantityPrecision=()=>{const whole=form.elements.unit.value==='butir';form.elements.quantity.min=whole?'1':'0.001';form.elements.quantity.step=whole?'1':'0.001';};
   const updatePreview=()=>{const farmId=form.elements.farm_id.value,category=form.elements.category.value,quantity=Number(form.elements.quantity.value||0),unit=form.elements.unit.value,status=form.elements.status.value,date=parseDateInput(form.elements.date.value)||today();const normalized=normalizeSaleForStock(farmId,category,quantity,unit);const box=$('#saleStockPreview');if(!normalized.stock_category){box.innerHTML='<b>Kategori belum ditautkan ke stok.</b><span>Admin perlu membuat pemetaan pada menu Stok & Penjualan.</span>';return;}const position=stockPosition(farmId,normalized.stock_category,normalized.normalized_unit||unit,date,existing?.id||null);const deduct=status==='Dibayar'?Number(normalized.normalized_quantity||0):0;const after=position.available-deduct;const rule=normalized.rule;const explanation=unit==='peti'&&normalized.normalized_unit==='kg'?`${num(quantity,2)} peti × ${num(rule.kg_per_peti,2)} kg/peti = ${num(normalized.normalized_quantity,2)} kg`: `${num(quantity,2)} ${unit} = ${num(normalized.normalized_quantity,2)} ${normalized.normalized_unit}`;box.innerHTML=`<b>${esc(normalized.stock_category)} · ${esc(explanation)}</b><span>Stok tersedia sebelum transaksi: ${position.known?`${num(position.available,2)} ${esc(position.unit)}`:'Perlu konfirmasi satuan'}${position.snapshotDate?` (saldo dasar ${dateLabel(position.snapshotDate)})`:''}</span><span>${status==='Dibayar'?`Perkiraan saldo setelah dibayar: ${num(after,2)} ${esc(position.unit)}`:'Belum mengurangi stok sampai status Dibayar.'}</span>${rule?.kg_per_peti&&!rule.conversion_confirmed?'<em>Konversi peti masih asumsi admin.</em>':''}${after<-.0001&&status==='Dibayar'?'<em class="stock-error">Jumlah melebihi stok tersedia. Kurangi jumlah atau catat/koreksi saldo stok terlebih dahulu.</em>':''}${position.notes.length?`<small>${esc(position.notes.join(' · '))}</small>`:''}`;};
   form.elements.farm_id.addEventListener('change',()=>{updateCategoryOptions(form.elements.farm_id.value,'');updatePreview();});
   ['category','quantity','unit','status','date'].forEach(name=>form.elements[name].addEventListener('input',updatePreview));
   form.elements.category.addEventListener('change',updatePreview);form.elements.unit.addEventListener('change',()=>{syncQuantityPrecision();updatePreview();});form.elements.status.addEventListener('change',updatePreview);syncQuantityPrecision();updatePreview();
-  form.addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(form));const operationDate=parseDateInput(f.date);if(!operationDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}f.date=operationDate;const quantity=Number(f.quantity),normalized=normalizeSaleForStock(f.farm_id,f.category,quantity,f.unit);if(!normalized.stock_category){toast('Kategori belum ditautkan ke stok. Admin dapat mengaturnya di menu Stok & Penjualan.',true);return;}if(normalized.rule?.kg_per_peti&&!normalized.rule.conversion_confirmed&&f.unit==='peti'&&!window.confirm(`Konversi ${num(normalized.rule.kg_per_peti,2)} kg/peti masih berstatus asumsi. Lanjutkan dan simpan nilai konversi ini pada transaksi?`))return;if(f.status==='Dibayar'){const position=stockPosition(f.farm_id,normalized.stock_category,normalized.normalized_unit||f.unit,f.date,existing?.id||null);const available=position.available;if(position.known&&(position.snapshotDate||state.reports.some(r=>r.farm_id===f.farm_id&&r.date<=f.date))&&Number(normalized.normalized_quantity)>available+.0001){toast(`Stok ${normalized.stock_category} tidak cukup: tersedia ${num(available,2)} ${position.unit}, diminta ${num(normalized.normalized_quantity,2)} ${normalized.normalized_unit}.`,true);return;}}const row={...v,id:v.id||crypto.randomUUID(),farm_id:f.farm_id,date:f.date,customer:f.customer||null,category:f.category,quantity,unit:f.unit,amount:parseMoneyInput(f.amount),payment_method:f.payment_method,status:f.status,note:f.note||'',stock_category:normalized.stock_category,normalized_quantity:normalized.normalized_quantity,normalized_unit:normalized.normalized_unit,created_at:v.created_at||new Date().toISOString()};try{await saveRecord('sales',row,existing?'update':'insert');closeModal();render();toast(existing?'Penjualan diperbarui.':'Penjualan tersimpan.');}catch{}});
+  form.addEventListener('submit',async e=>{e.preventDefault();if(!canSaveSmartEvidence('sales'))return;const f=Object.fromEntries(new FormData(form));const operationDate=parseDateInput(f.date);if(!operationDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}f.date=operationDate;const quantity=Number(f.quantity),normalized=normalizeSaleForStock(f.farm_id,f.category,quantity,f.unit);if(!normalized.stock_category){toast('Kategori belum ditautkan ke stok. Admin dapat membuat pemetaan lebih dulu.',true);return;}const saved=recordAttachments.filter(a=>a.entity_table==='sales'&&a.entity_id===v.id),newFiles=pendingSmartEvidence.sales;if(!existing&&!saved.some(a=>a.attachment_kind==='nota')&&!newFiles.some(a=>a.kind==='nota')){toast('Lampirkan nota penjualan terlebih dahulu.',true);return;}if(f.payment_method==='Transfer bank'&&(!existing||v.payment_method!=='Transfer bank')&&!saved.some(a=>a.attachment_kind==='transfer')&&!newFiles.some(a=>a.kind==='transfer')){toast('Lampirkan bukti transfer karena metode pembayaran Transfer bank.',true);return;}if(normalized.rule?.kg_per_peti&&!normalized.rule.conversion_confirmed&&f.unit==='peti'&&!window.confirm(`Konversi ${num(normalized.rule.kg_per_peti,2)} kg/peti masih berstatus asumsi. Lanjutkan dan simpan nilai konversi ini pada transaksi?`))return;if(f.status==='Dibayar'){const position=stockPosition(f.farm_id,normalized.stock_category,normalized.normalized_unit||f.unit,f.date,existing?.id||null);const available=position.available;if(position.known&&(position.snapshotDate||state.reports.some(r=>r.farm_id===f.farm_id&&r.date<=f.date))&&Number(normalized.normalized_quantity)>available+.0001){toast(`Stok ${normalized.stock_category} tidak cukup: tersedia ${num(available,2)} ${position.unit}, diminta ${num(normalized.normalized_quantity,2)} ${normalized.normalized_unit}.`,true);return;}}const row={...v,id:v.id||crypto.randomUUID(),farm_id:f.farm_id,date:f.date,customer:f.customer||null,category:f.category,quantity,unit:f.unit,amount:parseMoneyInput(f.amount),payment_method:f.payment_method,status:f.status,note:f.note||'',stock_category:normalized.stock_category,normalized_quantity:normalized.normalized_quantity,normalized_unit:normalized.normalized_unit,created_at:v.created_at||new Date().toISOString()};try{await saveRecord('sales',row,existing?'update':'insert');try{await saveSmartEvidence('sales',row);}catch(error){console.error('Penjualan tersimpan tetapi bukti gagal',error);closeModal();render();toast("Penjualan tersimpan, tetapi bukti gagal diunggah: "+error.message,true);return;}closeModal();render();toast(existing?'Penjualan diperbarui.':'Penjualan tersimpan.');}catch{} });
 }
 function showStockForm() {
   const farmOpts=state.farms.map(f=>[f.id,`${f.name} · ${f.status}`]);
   const rows=[['PT','Peti (PT)','peti'],['TU','TU · Telur utuh (padanan terdekat SU)','kg'],['TC','Telur cair (TC)','kg'],['JB','Jumbo (JB)','kg'],['SU','Sisa utuh (SU)','kg']];
   openModal('Catat saldo stok','Masukkan saldo fisik yang terlihat pada tanggal snapshot. Setiap kategori dan satuan disimpan terpisah.',`<form id="stockForm" class="form-grid">${selectField('Lokasi','farm_id',farmOpts,selectedFarm==='semua'?defaultFarmId():selectedFarm)}${formField('Tanggal saldo','snapshot_date','date',today(),{required:true})}${rows.map(([category,label,unit])=>formField(`${label} · ${unit}` ,category,'number','',{min:0,step:'0.01',placeholder:'Kosong jika tidak diketahui'})).join('')}${formField('Catatan / teks asli','note','textarea','',{full:true,placeholder:'Contoh: Stok 40pt · Tu 7.4kg · Tc 7.98kg · Jb 4.6kg'})}<div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">Simpan saldo</button></div></form>`);
-  $('#stockForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const snapshotDate=parseDateInput(f.snapshot_date);if(!snapshotDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}const snapshotRows=rows.filter(([category])=>f[category]!== '').map(([category,,unit])=>({id:crypto.randomUUID(),farm_id:f.farm_id,snapshot_date:snapshotDate,category,quantity:Number(f[category]),unit,note:f.note||''}));if(!snapshotRows.length){toast('Isi setidaknya satu saldo stok.',true);return;}try{await Promise.all(snapshotRows.map(row=>saveRecord('stockSnapshots',row,'upsert')));$('#modalRoot').innerHTML='';render();toast('Saldo stok tersimpan.');}catch{}}
+  const form=$('#stockForm');form.querySelector('.form-actions').insertAdjacentHTML('beforebegin',capturePanel('stock','Baca screenshot atau teks stok','Tempel catatan stok, paste screenshot WhatsApp, lalu periksa angka yang terisi.'));
+  pendingSmartEvidence.stock=[];setupSmartCapture('stock',form);
+  form.addEventListener('submit',async e=>{e.preventDefault();if(!canSaveSmartEvidence('stock'))return;const f=Object.fromEntries(new FormData(e.currentTarget));const snapshotDate=parseDateInput(f.snapshot_date);if(!snapshotDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}const snapshotRows=rows.filter(([category])=>f[category]!== '').map(([category,,unit])=>({id:crypto.randomUUID(),farm_id:f.farm_id,snapshot_date:snapshotDate,category,quantity:Number(f[category]),unit,note:f.note||''}));if(!snapshotRows.length){toast('Isi setidaknya satu saldo stok.',true);return;}try{await Promise.all(snapshotRows.map(row=>saveRecord('stockSnapshots',row,'upsert')));if(pendingSmartEvidence.stock.length){try{await saveSmartEvidence('stock',snapshotRows[0]);}catch(error){console.error('Saldo tersimpan tetapi bukti gagal',error);closeModal();render();toast("Saldo stok tersimpan, tetapi bukti gagal diunggah: "+error.message,true);return;}}closeModal();render();toast('Saldo stok tersimpan.');}catch{}}
   );
 }
 function showStockEditForm(snapshot) {
@@ -634,7 +800,9 @@ function showCashForm(existing=null) {
  const initialFarm=v.farm_id||(selectedFarm!=='semua'&&accessibleFarms.some(f=>f.id===selectedFarm)?selectedFarm:accessibleFarms[0]?.id)||'';
  openModal(existing?'Edit transaksi kas':'Tambah transaksi kas','Pembayaran kepada penerima eksternal dicatat sebagai kas keluar. Transfer internal dicatat terpisah.',`<form id="cashForm" class="form-grid">${formField('Tanggal','date','date',v.date||today(),{required:true})}${formField('Jumlah (Rp)','amount','number',v.amount??'',{money:true,required:true,help:'Contoh: 1000 otomatis tampil sebagai 1.000.'})}${formField('Penerima','recipient','text',v.recipient||'',{required:true,placeholder:'Tukang, pekerja, pemasok…'})}${selectField('Kategori','category',['Upah/tenaga kerja','Alat','Kandang/pembangunan','Operasional','Lainnya'],v.category||'Operasional')}${formField('Tujuan / keterangan','purpose','text',v.purpose||'',{required:true,full:true})}${selectField('Metode','method',['Transfer bank','E-wallet','Tunai','Pindah dana internal'],v.method||'Tunai')}${selectField('Status','status',['Dibayar','Direncanakan','Perlu verifikasi','Dibatalkan'],v.status||'Dibayar')}${selectField('Cakupan','scope',scopeOptions,selectedScope)}${selectField('Lokasi / proyek','farm_id',farmOpts,initialFarm)}${formField('Referensi transfer','reference','text',v.reference||'',{placeholder:'Opsional'})}${formField('Catatan','note','textarea',v.note||'',{full:true})}<div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">${existing?'Simpan koreksi':'Simpan transaksi'}</button></div></form>`);
  const form=$('#cashForm');bindMoneyInputs(form);
- form.addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(form));const operationDate=parseDateInput(f.date);if(!operationDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}f.date=operationDate;const amount=parseMoneyInput(f.amount);if(amount<1){toast('Masukkan jumlah rupiah minimal 1.',true);return;}const farm=farmById(f.farm_id);const groupScope=groupScopes.includes(f.scope);if(groupScope&&!canManageGroupCash()){toast('Transaksi grup hanya dapat dicatat admin Cikalong. Pilih Lokasi produksi atau Proyek pembangunan.',true);return;}if(!groupScope&&backend==='supabase'&&!farm){toast('Pilih lokasi yang bisa Anda akses.',true);return;}const row={...v,id:v.id||crypto.randomUUID(),...f,amount,farm_id:groupScope?null:f.farm_id,scope_name:groupScope?'':farm?.name||''};try{await saveRecord('cash',row,existing?'update':'insert');closeModal();render();toast(existing?'Transaksi diperbarui.':'Transaksi kas tersimpan.');}catch{}});
+ form.querySelector('.form-actions').insertAdjacentHTML('beforebegin',capturePanel('cash','Baca screenshot atau teks transaksi','Tempel teks catatan atau bukti pembayaran untuk mengisi kolom. Periksa sebelum simpan.'));
+ pendingSmartEvidence.cash=[];setupSmartCapture('cash',form,undefined,v.id);
+ form.addEventListener('submit',async e=>{e.preventDefault();if(!canSaveSmartEvidence('cash'))return;const f=Object.fromEntries(new FormData(form));const operationDate=parseDateInput(f.date);if(!operationDate){toast('Tanggal harus memakai format DD/MM/YYYY yang valid.',true);return;}f.date=operationDate;const amount=parseMoneyInput(f.amount);if(amount<1){toast('Masukkan jumlah rupiah minimal 1.',true);return;}const farm=farmById(f.farm_id);const groupScope=groupScopes.includes(f.scope);if(groupScope&&!canManageGroupCash()){toast('Transaksi grup hanya dapat dicatat admin Cikalong. Pilih Lokasi produksi atau Proyek pembangunan.',true);return;}if(!groupScope&&backend==='supabase'&&!farm){toast('Pilih lokasi yang bisa Anda akses.',true);return;}const row={...v,id:v.id||crypto.randomUUID(),...f,amount,farm_id:groupScope?null:f.farm_id,scope_name:groupScope?'':farm?.name||''};try{await saveRecord('cash',row,existing?'update':'insert');try{await saveSmartEvidence('cash',row);}catch(error){console.error('Transaksi tersimpan tetapi bukti gagal',error);closeModal();render();toast("Transaksi tersimpan, tetapi bukti gagal diunggah: "+error.message,true);return;}closeModal();render();toast(existing?'Transaksi diperbarui.':'Transaksi kas tersimpan.');}catch{}});
 }
 function showFarmForm(farm=null) {
  openModal(farm?'Kelola tempat produksi':'Tambah tempat produksi',farm?'Perubahan status dan lokasi tidak menghapus catatan historis.':'Tambahkan lokasi baru. Lokasi nonoperasional tidak masuk agregat produksi aktif.',`<form id="farmForm" class="form-grid">${formField('Nama lokasi','name','text',farm?.name||'',{required:true})}${formField('Kode unik','code','text',farm?.code||'',{required:true})}${formField('Alamat / wilayah','region','text',farm?.region||'',{required:true})}${selectField('Zona waktu','timezone',['Asia/Jakarta','Asia/Makassar','Asia/Jayapura'],farm?.timezone||'Asia/Jakarta')}${selectField('Status','status',['Pembangunan','Persiapan','Beroperasi','Jeda','Ditutup'],farm?.status||'Pembangunan')}${formField('Tanggal mulai operasi','start_date','date',farm?.start_date||'')}${formField('Penanggung jawab','responsible','text',farm?.responsible||'')}${farm?formField('Catatan perubahan','change_note','text','',{required:true,full:true,placeholder:'Alasan perubahan status atau detail lokasi'}):''}<div class="form-actions"><button type="button" class="btn" data-close="true">Batal</button><button class="btn btn-primary">${farm?'Simpan perubahan':'Buat lokasi'}</button></div></form>`);
@@ -720,7 +888,7 @@ function exportCsv(kind) {
   const csv=[keys.join(','),...rows.map(row=>keys.map(key=>`"${String(row[key]??'').replaceAll('"','""')}"`).join(','))].join('\r\n');
   const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`${name.toLowerCase().replaceAll(' ','-')}-${today()}.csv`;a.click();URL.revokeObjectURL(url);toast('CSV berhasil diekspor.');
 }
-function connectionInfo() { openModal('Hubungkan Supabase','Aktifkan penyimpanan bersama untuk data farm.',`<div class="review-list"><p class="muted-note">Buat proyek Supabase, jalankan file <b>supabase/schema.sql</b> di SQL Editor, lalu salin <b>supabase-config.js.example</b> menjadi <b>supabase-config.js</b> dan isi Project URL serta anon/publishable key. Jangan gunakan service_role key pada browser.</p><p class="muted-note">Untuk stok penjualan, jalankan juga <b>supabase/sales-stock-link.sql</b>. File itu aman dijalankan ulang dan menambahkan pemetaan kategori serta kolom konversi penjualan.</p><p class="muted-note">Setelah halaman dimuat ulang, aplikasi memakai Supabase jika tabel tersedia dan konfigurasi valid. Mode browser lokal tetap menjadi pratinjau tanpa kredensial.</p><div class="form-actions"><button class="btn btn-primary" data-close="true">Mengerti</button></div></div>`); }
+function connectionInfo() { openModal('Hubungkan Supabase','Aktifkan penyimpanan bersama untuk data farm.',`<div class="review-list"><p class="muted-note">Buat proyek Supabase, jalankan file <b>supabase/schema.sql</b> di SQL Editor, lalu salin <b>supabase-config.js.example</b> menjadi <b>supabase-config.js</b> dan isi Project URL serta anon/publishable key. Jangan gunakan service_role key pada browser.</p><p class="muted-note">Untuk stok penjualan, jalankan juga <b>supabase/sales-stock-link.sql</b>. Untuk menyimpan nota/bukti gambar pada penjualan, stok, dan kas, jalankan <b>supabase/smart-capture-evidence.sql</b>.</p><p class="muted-note">OCR memakai Tesseract.js yang dimuat dari CDN saat diminta. Pastikan koneksi internet aktif. Hasil OCR adalah saran yang wajib diperiksa dan tidak menyimpan data otomatis.</p><div class="form-actions"><button class="btn btn-primary" data-close="true">Mengerti</button></div></div>`); }
 
 async function connectSupabase() {
   const cfg=window.SUPABASE_CONFIG;
@@ -743,6 +911,9 @@ async function connectSupabase() {
     const results=await Promise.all(queries);
     const error=results.find(r=>r.error)?.error; if(error) throw error;
     const [reports,sales,cash,terms,stock,members,profile,auditEvents,reportAttachments]=results.map(r=>r.data);
+    const attachmentResult=await supabase.from('record_attachments').select('*').order('created_at',{ascending:false}).limit(2000);
+    if(attachmentResult.error&&!['PGRST205','42P01'].includes(attachmentResult.error.code))throw attachmentResult.error;
+    recordAttachmentsReady=!attachmentResult.error;
     memberships=members||[];farmUsers=memberships;
     const ownFarm=memberships.find(m=>m.user_id===currentUser.id)?.farm_id;
     selectedFarm=memberships.some(m=>adminRoles.includes(m.role))?'semua':ownFarm||farms[0]?.id||'semua';
@@ -763,6 +934,7 @@ async function connectSupabase() {
     state.terms=[...glossary.values()];
     state.auditEvents=auditEvents||[];
     state.reportAttachments=reportAttachments||[];
+    recordAttachments=attachmentResult.error?[]:attachmentResult.data||[];
     state.reports=(reports||[]).map(r=>({...r,status:r.status==='disetujui'?'Disetujui':r.status==='draf'?'Draf':'Dikirim'}));
     document.body.classList.remove('auth-required');
     backend='supabase';persist();render();

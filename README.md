@@ -33,6 +33,7 @@ Project memakai build statis di `vercel.json`. Tambahkan `NEXT_PUBLIC_SUPABASE_U
 5. Siapkan `.env.local` dengan `NEXT_PUBLIC_SUPABASE_URL` dan `NEXT_PUBLIC_SUPABASE_ANON_KEY`, lalu jalankan `node scripts/sync-supabase-config.mjs`. Skrip membuat berkas lokal `supabase-config.js`, yang diabaikan Git.
 6. Muat ulang aplikasi dan masuk dengan akun Supabase. Akun staff (`petugas`) hanya dapat melihat lokasi yang ditugaskan melalui `farm_members`; admin farm, manajer, dan admin sistem dapat membaca seluruh lokasi. Kebijakan RLS Supabase menegakkan batas tersebut untuk permintaan langsung ke database. Halaman login tidak menyediakan pendaftaran mandiri.
 7. Deploy Edge Function untuk undangan staff: `supabase functions deploy admin-invite-user`. Function memakai `SUPABASE_SERVICE_ROLE_KEY` hanya di server dan memeriksa bahwa pemanggil admin lokasi. Pastikan pengiriman email Auth/SMTP Supabase sudah dikonfigurasi. Atur `APP_SITE_URL` sebagai secret function jika tautan undangan harus kembali ke alamat aplikasi tertentu.
+8. Jalankan [supabase/smart-capture-evidence.sql](supabase/smart-capture-evidence.sql) untuk menyimpan nota dan bukti gambar pada penjualan, stok, dan kas. OCR menggunakan Tesseract.js dari CDN saat diminta; pastikan browser terhubung ke internet.
 
 `supabase-config.js` diabaikan Git. Browser hanya boleh memakai anon/publishable key; jangan menaruh `service_role` key di frontend. Jangan gunakan database produksi sebelum kebijakan, peran, dan alur autentikasi ditinjau sesuai kebutuhan operasional.
 
@@ -40,6 +41,7 @@ Project memakai build statis di `vercel.json`. Tambahkan `NEXT_PUBLIC_SUPABASE_U
 
 - Ringkasan produksi, sortir, snapshot stok per kategori/satuan, penjualan, tren harian, dan catatan yang perlu ditinjau.
 - Form catatan produksi, penjualan, kas keluar, istilah lokal, dan pengelolaan tempat produksi.
+- Form produksi, stok, penjualan, dan kas dapat membaca teks yang ditempel atau screenshot dari clipboard/file. Hasil OCR menjadi isian awal yang harus ditinjau pengguna sebelum disimpan. Penjualan baru memerlukan nota; metode Transfer bank juga memerlukan bukti transfer.
 - Laporan periode, ekspor CSV, cetak/PDF, tabel responsif, filter lokasi/periode, dan kamus yang dapat dicari.
 - Lokasi nonoperasional (pembangunan, persiapan, jeda, ditutup) tetap terlihat dan dikecualikan dari agregat produksi aktif.
 - Skema Supabase untuk farm/akses, laporan harian, penjualan, transaksi kas, istilah, dan audit.
@@ -47,4 +49,4 @@ Project memakai build statis di `vercel.json`. Tambahkan `NEXT_PUBLIC_SUPABASE_U
 
 ## Batasan prototipe
 
-Contoh `40 peti · TU 7,4 kg · TC 7,98 kg · JB 4,6 kg` dari screenshot hanya ditampilkan sebagai penjelasan, belum dimasukkan sebagai saldo farm. Staff/admin perlu mencatat snapshot stok aktual. Peti, kg, dan butir tidak dijumlahkan atau dikonversi otomatis; TU tetap belum dipetakan. Rekonsiliasi otomatis dari mutasi, retur, kehilangan, dan koreksi, persetujuan berversi, unggah bukti, kandang/flock, serta pengelolaan peran selain Staff masih memerlukan tahap lanjutan. Akun awal admin dibuat melalui Supabase Auth dan diberi membership oleh admin proyek.
+Screenshot hanya mengisi form sebagai saran; pengguna perlu memeriksa hasilnya. Clipboard gambar mungkin meminta izin browser, dan OCR memerlukan koneksi internet. Contoh baru dapat dipakai untuk memperluas aturan pembacaan pola, tetapi sistem tidak melatih model otomatis. Peti, kg, dan butir tetap mengikuti satuan dan aturan stok setiap lokasi.
