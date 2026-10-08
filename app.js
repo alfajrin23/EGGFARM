@@ -716,7 +716,7 @@ function parseSmartCapture(type,text) {
   if(type==='production'){
     const pair=source.match(/\b(\d{3,6})\s*[\/|]\s*(\d{2,3}[.,]\d{1,3})\b/);if(pair){fields.eggs=pair[1];fields.kg=captureNumber(pair[2]);}
     const pt=source.match(/\bpt\.?\s*[:\-]?\s*([^\r\n;]*?)(?=\s+(?:su|jb|tc|tot|sst|hd|fi|berat|fcr|hh)\b|[;\r\n]|$)/im);if(pt?.[1]?.trim()){fields.pt_reported=pt[1].trim();const packing=pt[1].match(/(?:^|\D)(\d+)\s*(?:\+\s*(\d+))?\s*\/\s*(\d+(?:[.,]\d+)?)\s*kg\b/i);if(packing){fields.pt_full_crates=Number(packing[1]);fields.pt_partial_crates=Number(packing[2]||0);fields.pt_reported_kg=captureNumber(packing[3]);}}
-    const reportedTotal=valueAfter('tot(?:al)?');if(reportedTotal!==null)fields.total_reported_kg=captureNumber(reportedTotal);
+    const reportedTotal=source.match(/(?:^|\b)tot(?:al)?\s*\.?\s*:?\s*([+-]?\d+(?:[.,]\d+)?)(?:\s*kg)?\b/im)?.[1]??valueAfter('tot(?:al)?');if(reportedTotal!==null)fields.total_reported_kg=captureNumber(reportedTotal);
     for(const [field,label] of [['su','su'],['jb','jb'],['tc','tc'],['sst','sst'],['hd_reported','hd'],['fi_reported','fi'],['ew_reported','berat\s+tel(?:u|o)r'],['fcr_reported','fcr'],['hh_reported','hh']]){const value=valueAfter(label);if(value!==null)fields[field]=field==='hh_reported'?value:captureNumber(value);}
     const birds=valueAfter('ayam\\s+hidup|populasi');if(birds!==null)fields.birds=captureNumber(birds);
     const feed=valueAfter('pakan(?:\\s+total)?');if(feed!==null)fields.feed=captureNumber(feed);
